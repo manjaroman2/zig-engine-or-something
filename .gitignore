@@ -1,0 +1,3 @@
+renderdoc
+zig-out/
+.zig-cache/
