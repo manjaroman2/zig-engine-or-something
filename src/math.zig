@@ -22,14 +22,42 @@ pub inline fn f32s_gte(a: f32, b: f32) bool {
 
 pub const ZERO_U64: u64 = 0;
 pub const ONE_U64: u64 = 1;
-pub const Point = @Vector(2, i64);
+pub const Point = [2]i64;
 pub const Point_MIN = .{ std.math.minInt(i64), std.math.minInt(i64) };
 pub const Point_MAX = .{ std.math.maxInt(i64), std.math.maxInt(i64) };
+
+pub inline fn PointSubtract(a: Point, b: Point) Point {
+    return .{ a[0] - b[0], a[1] - b[1] };
+}
+
+pub inline fn PointMax(a: Point, b: Point) Point {
+    return .{
+        @max(a[0], b[0]),
+        @max(a[1], b[1]),
+    };
+}
+
+pub inline fn PointMin(a: Point, b: Point) Point {
+    return .{
+        @min(a[0], b[0]),
+        @min(a[1], b[1]),
+    };
+}
+
+pub inline fn PointNegate(a: Point) Point {
+    return .{ -a[0], -a[1] };
+}
 
 pub inline fn PointEqual(a: Point, b: Point) bool {
     return a[0] == b[0] and a[1] == b[1];
 }
 
+pub inline fn PointLessThan(a: Point, b: Point) bool {
+    return a[0] < b[0] and a[1] < b[1];
+}
+pub inline fn PointLessThanEqual(a: Point, b: Point) bool {
+    return a[0] <= b[0] and a[1] <= b[1];
+}
 pub inline fn PointZero(a: Point) bool {
     return a[0] == 0 and a[0] == 0;
 }
@@ -39,15 +67,15 @@ pub inline fn PointInterpolate(a: Point, b: Point) Point {
 }
 
 pub inline fn dotProduct(a: Point, b: Point) i64 {
-    return @reduce(.Add, a * b);
+    return a[0] * b[0] + a[1] * b[1];
 }
 
 pub inline fn length(a: Point) f32 {
-    return @sqrt(@as(f32, @floatFromInt(@reduce(.Add, a * a))));
+    return @sqrt(@as(f32, @floatFromInt(dotProduct(a, a))));
 }
 
 pub inline fn signedAngle(a: Point, b: Point) f32 {
-    return std.math.atan2(@as(f32, @floatFromInt(a[0] * b[1] - a[1] * b[0])), @as(f32, @floatFromInt(a[0] * b[0] + a[1] * b[1])));
+    return std.math.atan2(@as(f32, @floatFromInt(cross(a, b))), @as(f32, @floatFromInt(dotProduct(a, b))));
 }
 
 pub inline fn cross(a: Point, b: Point) i64 {
@@ -95,8 +123,8 @@ pub const PointF = @Vector(2, f32);
 pub const PointF_MIN = .{ std.math.floatMin(f32), std.math.floatMin(f32) };
 pub const PointF_MAX = .{ std.math.floatMax(f32), std.math.floatMax(f32) };
 
-pub inline fn PointFfromInt(int: anytype) PointF {
-    return @as(PointF, @floatFromInt(int));
+pub inline fn PointFfromInt(a: Point) PointF {
+    return .{ @as(f32, @floatFromInt(a[0])), @as(f32, @floatFromInt(a[1])) };
 }
 pub inline fn rotate(point: PointF, degree: f32) PointF {
     const t = std.math.degreesToRadians(degree);

@@ -7,6 +7,7 @@ const Point = math.Point;
 const Point_MIN = math.Point_MIN;
 const Point_MAX = math.Point_MAX;
 const PointEqual = math.PointEqual;
+const PointSubtract = math.PointSubtract;
 const PointZero = math.PointZero;
 const PointInterpolate = math.PointInterpolate;
 const PointF = math.PointF;
@@ -65,7 +66,7 @@ const Printer = struct {
         }
     }
 
-    fn deinit(self: Printer) void {
+    fn deinit(self: *Printer) void {
         while (self.allocated.items.len > 0) self.free_last();
         self.allocated.deinit(self.allocator);
     }
@@ -94,6 +95,22 @@ const Printer = struct {
         });
         return result;
     }
+
+    fn domain(self: *Printer, d: *const PolygonalDomain) ![]const u8 {
+        var holes = try self.allocator.alloc([]const u8, d.holes.len);
+        defer {
+            for (holes) |h| self.allocator.free(h);
+            self.allocator.free(holes);
+        }
+        for (d.holes, 0..) |hole, holeI| {
+            holes[holeI] = try std.fmt.allocPrint(self.allocator, "hole{}:\n{s}", .{ holeI, try self.contour(&hole) });
+            // holes[holeI] = try self.contour(&hole);
+        }
+        const holesJoined = try std.mem.join(self.allocator, "\n", holes);
+        defer self.allocator.free(holesJoined);
+        const outer = try self.contour(&d.outer);
+        return try self.allocPrintWithChildren(d.holes.len + 1, "outer:\n{s}\n{s}\n", .{ outer, holesJoined });
+    }
 };
 
 const WindingOrder = enum {
@@ -115,7 +132,23 @@ inline fn delauneyCondition(windingOrder: WindingOrder, a: Point, b: Point, c: P
     };
 }
 
-pub const Contour = struct {
+// @@TODO Change data structure of Contour
+//   points: []Point linked list
+//   windingOrder: ...
+//   segments: ...
+//
+// Point could look like this:
+//   value: @Vec(2, i64)
+//   next: Point
+//   prev: Point
+//   nextDiff: Point = next.value - self.value
+//   prevDiff: ...
+// Advantages:
+// - be more compact memory, currently we store duplicates in lp and rp
+// - More efficent algorithms, don't need to check next.lp=rp
+//
+
+const Contour = struct {
     edges: []Edge,
     edgesCount: usize,
     windingOrder: WindingOrder,
@@ -159,7 +192,7 @@ pub const Contour = struct {
         const A = minEdge.lp;
         const B = minEdge.prev.lp;
         const C = minEdge.next.lp;
-        const metric = math.cross(B - A, C - A);
+        const metric = math.cross(PointSubtract(B, A), PointSubtract(C, A));
         if (metric == 0) return errors.BadContour;
         return .{
             .edges = edges,
@@ -167,6 +200,67 @@ pub const Contour = struct {
             .segments = segments,
             .windingOrder = if (metric > 0) .CLOCKWISE else .COUNTERCLOCKWISE,
         };
+    }
+
+    fn deinit(self: Contour, allocator: std.mem.Allocator) void {
+        allocator.free(self.edges);
+        allocator.free(self.segments);
+    }
+};
+
+const EdgeState = enum {
+    PLUS,
+    MINUS,
+    EQUAL,
+
+    fn fromDiff(diff: i64) EdgeState {
+        if (diff > 0) return .PLUS;
+        if (diff < 0) return .MINUS;
+        return .EQUAL;
+    }
+};
+
+const Edge = struct {
+    lp: Point,
+    rp: Point,
+    diffp: Point,
+    lpF: PointF = undefined,
+    rpF: PointF = undefined,
+    diffpF: PointF = undefined,
+    m: f32 = undefined,
+    t: f32 = undefined,
+    stateY: EdgeState = undefined,
+    stateX: EdgeState = undefined,
+    next: *Edge = undefined,
+    prev: *Edge = undefined,
+    idx: usize = undefined,
+
+    pub inline fn fromSegment(seg: Segment) Edge {
+        var ret = switch (seg) {
+            .line => |s| Edge{
+                .lp = s.start,
+                .rp = s.end,
+                .diffp = PointSubtract(s.start, s.end),
+            },
+            .conic => |s| Edge{
+                .lp = s.start,
+                .rp = s.end,
+                .diffp = PointSubtract(s.start, s.end),
+            },
+            .cubic => |s| Edge{
+                .lp = s.start,
+                .rp = s.end,
+                .diffp = PointSubtract(s.start, s.end),
+            },
+        };
+        ret.lpF = PointFfromInt(ret.lp);
+        ret.rpF = PointFfromInt(ret.rp);
+        ret.diffpF = PointFfromInt(ret.diffp);
+        ret.stateY = EdgeState.fromDiff(ret.diffp[1]);
+        ret.stateX = EdgeState.fromDiff(ret.diffp[0]);
+        ret.m = ret.diffpF[1] / ret.diffpF[0];
+        ret.t = ret.rpF[1] - ret.m * ret.rpF[0];
+        return ret;
     }
 };
 
@@ -208,7 +302,7 @@ pub const errors = error{
 };
 
 // Constructs bezier curves from outline data.
-fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
+fn parseOutlineBezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
     //  So, imagine a tree
     //  ON=FT_CURVE_TAG_ON, CO=FT_CURVE_TAG_CONIC, CU=FT_CURVE_TAG_CUBIC
     //  tree_layer
@@ -225,6 +319,9 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
     //              └────────────────────────────────────────────────────┘
     var contours = try allocator.alloc(Contour, outline.numContours());
     var contour_offset: usize = 0;
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    const arenaAllocator = arena.allocator();
+    defer arena.deinit();
     for (outline.contours()[0..outline.numContours()], 0..) |contour_end_index, contourIdx| {
         const contour_length = @as(usize, @intCast(contour_end_index)) - contour_offset + 1;
         const tag_slice = outline.tags()[contour_offset .. contour_offset + contour_length];
@@ -235,13 +332,11 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
         var last: u8 = undefined;
         var tree_layer: u8 = 0;
 
-        var tags = try std.ArrayList(u8).initCapacity(allocator, contour_length + 2);
-        defer tags.deinit(allocator);
+        var tags = try std.ArrayList(u8).initCapacity(arenaAllocator, contour_length + 2);
         var points = try std.ArrayList(@Vector(2, i64)).initCapacity(
-            allocator,
+            arenaAllocator,
             contour_length + 2,
         );
-        defer points.deinit(allocator);
 
         // ref: https://freetype.org/freetype2/docs/glyphs/glyphs-6.html
         // The first point in a contour can be a conic ‘off’ point itself;
@@ -255,7 +350,7 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
                     last = freetype.c.FT_CURVE_TAG_CONIC;
                 },
                 freetype.c.FT_CURVE_TAG_CONIC => {
-                    try points.append(allocator, PointInterpolate(
+                    try points.append(arenaAllocator, PointInterpolate(
                         Point{
                             @intCast(point_slice[0].x),
                             @intCast(point_slice[0].y),
@@ -266,7 +361,7 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
                         },
                     ));
                     // insert extra ON tag
-                    try tags.append(allocator, freetype.c.FT_CURVE_TAG_ON);
+                    try tags.append(arenaAllocator, freetype.c.FT_CURVE_TAG_ON);
                 },
                 else => {
                     return errors.BadTag;
@@ -279,12 +374,12 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
         // For example, if the last two points of a contour were an ‘on’ point followed by a conic
         // ‘off’ point, the first point in the contour would be used as final point to create an
         // ‘on’ – ‘off’ – ‘on’ sequence as described above.
-        try tags.appendSlice(allocator, tag_slice);
-        try tags.append(allocator, tag_slice[0]);
+        try tags.appendSlice(arenaAllocator, tag_slice);
+        try tags.append(arenaAllocator, tag_slice[0]);
         for (point_slice) |p| {
-            try points.append(allocator, .{ p.x, p.y });
+            try points.append(arenaAllocator, .{ p.x, p.y });
         }
-        try points.append(allocator, .{ point_slice[0].x, point_slice[0].y });
+        try points.append(arenaAllocator, .{ point_slice[0].x, point_slice[0].y });
 
         // std.debug.print("{}\n", .{tags.items.len});
 
@@ -385,68 +480,16 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
         }
 
         contours[contourIdx] = try Contour.fromSegments(allocator, segments);
-        // defer segments.deinit(allocator);
     }
     return contours;
 }
 
-const EdgeState = enum {
-    PLUS,
-    MINUS,
-    EQUAL,
+// http://www.cse.yorku.ca/~amana/research/grid.pdf
+// fn rayTraverseGrid(ray: Ray) []*GridCell {
+//
+// }
 
-    fn fromDiff(diff: i64) EdgeState {
-        if (diff > 0) return .PLUS;
-        if (diff < 0) return .MINUS;
-        return .EQUAL;
-    }
-};
-
-const Edge = struct {
-    lp: Point,
-    rp: Point,
-    diffp: Point,
-    lpF: PointF = undefined,
-    rpF: PointF = undefined,
-    diffpF: PointF = undefined,
-    m: f32 = undefined,
-    t: f32 = undefined,
-    stateY: EdgeState = undefined,
-    stateX: EdgeState = undefined,
-    next: *Edge = undefined,
-    prev: *Edge = undefined,
-    idx: usize = undefined,
-
-    pub inline fn fromSegment(seg: Segment) Edge {
-        var ret = switch (seg) {
-            .line => |s| Edge{
-                .lp = s.start,
-                .rp = s.end,
-                .diffp = s.start - s.end,
-            },
-            .conic => |s| Edge{
-                .lp = s.start,
-                .rp = s.end,
-                .diffp = s.start - s.end,
-            },
-            .cubic => |s| Edge{
-                .lp = s.start,
-                .rp = s.end,
-                .diffp = s.start - s.end,
-            },
-        };
-        ret.lpF = PointFfromInt(ret.lp);
-        ret.rpF = PointFfromInt(ret.rp);
-        ret.diffpF = PointFfromInt(ret.diffp);
-        ret.stateY = EdgeState.fromDiff(ret.diffp[1]);
-        ret.stateX = EdgeState.fromDiff(ret.diffp[0]);
-        ret.m = ret.diffpF[1] / ret.diffpF[0];
-        ret.t = ret.rpF[1] - ret.m * ret.rpF[0];
-        return ret;
-    }
-};
-
-fn intersectWithEdge(anchor: PointF, edge: Edge) struct { hasIntersection: bool, gamma: f32, lambda: f32 } {
+fn rayHorizonalIntersectWithEdgeOld(anchor: PointF, edge: Edge) struct { hasIntersection: bool, gamma: f32, lambda: f32 } {
     if (edge.stateY == .EQUAL) {
         return .{
             .hasIntersection = false,
@@ -481,18 +524,31 @@ fn intersectWithEdge(anchor: PointF, edge: Edge) struct { hasIntersection: bool,
     }
 }
 
-fn countRayIntersections(contourJ: Contour, edge: Edge) u32 {
+fn rayHorizonalIntersectWithEdge(anchor: PointF, edge: Edge) bool {
+    if (edge.stateY == .EQUAL) return false;
+    const anchorEdgeLVec = edge.lpF - anchor;
+    // λ ∈ [0,1) is the position on the line pq (0=p, 1=q)
+    const lambda: f32 = anchorEdgeLVec[1] / edge.diffpF[1];
+    if (math.f32s_lt(lambda, 0) or math.f32s_gt(lambda, 1)) {
+        return false;
+    } else {
+        // γ is distance of intersection from anchor in x-direction
+        const gamma = anchorEdgeLVec[0] - edge.diffpF[0] * lambda;
+        return math.f32s_gte(gamma, 0);
+    }
+}
+
+fn rayCountIntersections(contourJ: Contour, edge: Edge) u32 {
     // Cast horizontal ray and check number of intersections with outer contour.
     // Check grid cells horizontally
     const p = edge.lp;
+    const pF = edge.lpF;
     var intersectionCount: u32 = 0;
     var curr = &contourJ.edges[0];
     var next = curr.next;
     var i: usize = 0;
-    // if (debug) std.debug.print("p={} {}\n", .{ p, contourJ.edges.len });
     while (i < contourJ.edges.len) {
         var hitVertex = false;
-        // if (debug) std.debug.print("{} {} {} {},{} {},{}\n", .{ i, intersectionCount, curr.state, curr.lp, curr.rp, next.lp, next.rp });
         if (curr.lp[0] < p[0] and curr.rp[0] < p[0]) {
             curr = next;
             next = curr.next;
@@ -508,7 +564,7 @@ fn countRayIntersections(contourJ: Contour, edge: Edge) u32 {
                 continue;
             }
             // we encounter the wrong vertex, so we skip, set hitVertex = false
-            hitVertex = @reduce(.And, next.rp == curr.lp);
+            hitVertex = PointEqual(next.rp, curr.lp);
         } else if (p[1] == curr.rp[1]) {
             // vertex is to the left, early skip
             if (curr.rp[0] < p[0]) {
@@ -518,64 +574,64 @@ fn countRayIntersections(contourJ: Contour, edge: Edge) u32 {
                 continue;
             }
             // we encounter the wrong vertex, so we skip, set hitVertex = false
-            hitVertex = @reduce(.And, next.lp == curr.rp);
+            hitVertex = PointEqual(next.rp, curr.lp);
         } else {
             // no vertex hit, just intersecting edges
-            const result = intersectWithEdge(PointFfromInt(p), curr.*);
-            if (result.hasIntersection) intersectionCount += 1;
-            // if (debug) std.debug.print("{} {} {} λ={} γ={}\n", .{ i, intersectionCount, result.hasIntersection, result.lambda, result.gamma });
+            if (rayHorizonalIntersectWithEdge(pF, curr.*)) intersectionCount += 1;
             curr = next;
         }
 
-        if (hitVertex) {
-            switch (curr.stateY) {
-                .MINUS => {
-                    while (i < contourJ.edges.len - 1) {
-                        switch (next.stateY) {
-                            .MINUS => { // intersect!
-                                intersectionCount += 1;
-                                break;
-                            },
-                            .PLUS => { // no intersect!
-                                break;
-                            },
-                            .EQUAL => {
-                                next = next.next;
-                                i += 1;
-                            },
-                        }
+        if (!hitVertex) {
+            next = curr.next;
+            i += 1;
+            continue;
+        }
+
+        switch (curr.stateY) {
+            .MINUS => {
+                while (i < contourJ.edges.len - 1) {
+                    switch (next.stateY) {
+                        .MINUS => { // intersect!
+                            intersectionCount += 1;
+                            break;
+                        },
+                        .PLUS => { // no intersect!
+                            break;
+                        },
+                        .EQUAL => {
+                            next = next.next;
+                            i += 1;
+                        },
                     }
-                    curr = next.next;
-                },
-                .PLUS => {
-                    while (i < contourJ.edges.len - 1) {
-                        switch (next.stateY) {
-                            .MINUS => { // no intersect!
-                                break;
-                            },
-                            .PLUS => { // intersect!
-                                intersectionCount += 1;
-                                break;
-                            },
-                            .EQUAL => {
-                                next = next.next;
-                                i += 1;
-                                // if (debug) std.debug.print("    {} {},{}\n", .{ i, next.lp, next.rp });
-                            },
-                        }
+                }
+                curr = next.next;
+            },
+            .PLUS => {
+                while (i < contourJ.edges.len - 1) {
+                    switch (next.stateY) {
+                        .MINUS => { // no intersect!
+                            break;
+                        },
+                        .PLUS => { // intersect!
+                            intersectionCount += 1;
+                            break;
+                        },
+                        .EQUAL => {
+                            next = next.next;
+                            i += 1;
+                        },
                     }
-                    i += 1;
-                    curr = next.next;
-                },
-                .EQUAL => {
-                    curr = next;
-                },
-            }
+                }
+                i += 1;
+                curr = next.next;
+            },
+            .EQUAL => {
+                curr = next;
+            },
         }
 
         next = curr.next;
         i += 1;
-        // if (debug) std.debug.print("  {} {} {} {},{} {},{}\n", .{ i, intersectionCount, curr.state, curr.lp, curr.rp, next.lp, next.rp });
     }
     return intersectionCount;
 }
@@ -611,6 +667,12 @@ fn isOutermost(contours: []Contour, contourRelations: []ContourType, i: usize) b
     return isOuter;
 }
 
+fn toOwnedSliceCopy(comptime T: type, allocator: std.mem.Allocator, src: []T) ![]T {
+    const dst = try allocator.alloc(T, src.len);
+    @memcpy(dst, src);
+    return dst;
+}
+
 pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contour) ![]PolygonalDomain {
     // The character 'A' for example consists of two contours, one for the outside
     // and another one for the hole. We (TTF) don't know that its a hole
@@ -628,11 +690,12 @@ pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contou
     // should not produce any holes.
     // Case 2&3 can be triangulated normally.
 
-    var contourRelations = try allocator.alloc(ContourType, contours.len * contours.len);
-    errdefer allocator.free(contourRelations);
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    const arenaAllocator = arena.allocator();
+    defer arena.deinit();
+    var contourRelations = try arenaAllocator.alloc(ContourType, contours.len * contours.len);
 
     // Check the boundary pairs for case 1-3.
-
     for (contours, 0..) |contourI, i| {
         for (contours, 0..) |contourJ, j| {
             // check every possible combination of contours, for example
@@ -643,7 +706,7 @@ pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contou
             var contourType: ContourType = undefined;
 
             for (contourI.edges) |edge| {
-                const intersectionCount = countRayIntersections(contourJ, edge);
+                const intersectionCount = rayCountIntersections(contourJ, edge);
                 if (intersectionCount % 2 == 0) {
                     if (contourTypeInvalid) {
                         contourTypeInvalid = false;
@@ -669,18 +732,15 @@ pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contou
     }
 
     // Convert relation matrix to polygonal domains.
-    var outermostContours = try std.ArrayList(usize).initCapacity(allocator, contours.len);
-    defer outermostContours.deinit(allocator);
+    var outermostContours = try std.ArrayList(usize).initCapacity(arenaAllocator, contours.len);
     for (0..contours.len) |i| {
         if (isOutermost(contours, contourRelations, i)) {
             outermostContours.appendAssumeCapacity(i);
         }
     }
-    var polygonalDomains = try std.ArrayList(PolygonalDomain).initCapacity(allocator, outermostContours.items.len);
-    defer polygonalDomains.deinit(allocator);
+    var polygonalDomains = try std.ArrayList(PolygonalDomain).initCapacity(arenaAllocator, outermostContours.items.len);
     for (outermostContours.items) |contourIdx| {
-        var holes = try std.ArrayList(Contour).initCapacity(allocator, contours.len);
-        defer holes.deinit(allocator);
+        var holes = try std.ArrayList(Contour).initCapacity(arenaAllocator, contours.len);
         for (0..contours.len) |j| {
             if (contourIdx != j and //
                 std.mem.indexOfScalar(usize, outermostContours.items, j) == null and //
@@ -691,7 +751,7 @@ pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contou
         }
         const polygonalDomain: PolygonalDomain = .{
             .outer = contours[contourIdx],
-            .holes = try holes.toOwnedSlice(allocator),
+            .holes = try toOwnedSliceCopy(Contour, allocator, holes.items[0..]),
         };
         for (polygonalDomain.holes) |hole| {
             if (polygonalDomain.outer.windingOrder == hole.windingOrder) {
@@ -700,25 +760,8 @@ pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contou
         }
         polygonalDomains.appendAssumeCapacity(polygonalDomain);
     }
-    return polygonalDomains.toOwnedSlice(allocator);
-}
 
-const MetricEdgeRef = struct {
-    edge: *Edge,
-    value: f32,
-};
-
-fn bisectLeft(arr: []const MetricEdgeRef, target: f32) usize {
-    var lo: usize = 0;
-    var hi: usize = arr.len;
-    while (lo < hi) {
-        const mid = (lo + hi) / 2;
-        if (arr[mid].value < target)
-            lo = mid + 1
-        else
-            hi = mid;
-    }
-    return lo;
+    return try toOwnedSliceCopy(PolygonalDomain, allocator, polygonalDomains.items[0..]);
 }
 
 const SubContourBuilder = struct {
@@ -767,36 +810,66 @@ const SubContourBuilder = struct {
     }
 };
 
-// http://www.cse.yorku.ca/~amana/research/grid.pdf
-// fn rayTraverseGrid(ray: Ray) []*GridCell {
-//
-// }
+const StartingEdgePicker = struct {
+    allocator: std.mem.Allocator,
+    sorted: []MetricEdgeRef,
+    idx: usize,
 
-pub fn findStartingEdge(allocator: std.mem.Allocator, contour: Contour) !*Edge {
-    var sorted = try allocator.alloc(MetricEdgeRef, contour.edges.len);
-    var count: usize = 0;
-    for (contour.edges) |curr| {
-        const next = curr.next;
-        const ba = -curr.diffp; // lp - rp
-        const bc = next.diffp;
-        var alpha_1 = math.signedAngle(ba, bc);
-        if (alpha_1 < 0) alpha_1 += 2 * std.math.pi;
+    const MetricEdgeRef = struct {
+        edge: *Edge,
+        value: f32,
+    };
 
-        const cb = -bc;
-        const cd = next.next.diffp;
-        var alpha_2 = math.signedAngle(cb, cd);
-        if (alpha_2 < 0) alpha_2 += 2 * std.math.pi;
-
-        const m_1 = @max(alpha_1, std.math.pi) + @max(alpha_2, std.math.pi);
-
-        const insert_val: MetricEdgeRef = .{ .edge = next, .value = m_1 };
-        const idx = bisectLeft(sorted[0..count], insert_val.value);
-        std.mem.copyBackwards(MetricEdgeRef, sorted[idx + 1 .. count + 1], sorted[idx..count]);
-        sorted[idx] = insert_val;
-        count += 1;
+    fn next(self: *StartingEdgePicker) *Edge {
+        const edge = self.sorted[self.sorted.len - 1 - self.idx].edge;
+        self.idx += 1;
+        return edge;
     }
-    return sorted[sorted.len - 1].edge;
-}
+
+    fn init(allocator: std.mem.Allocator, contour: Contour) !StartingEdgePicker {
+        var sorted = try allocator.alloc(MetricEdgeRef, contour.edges.len);
+        var count: usize = 0;
+        for (contour.edges) |curr| {
+            const nextEdge = curr.next;
+            const ba = math.PointNegate(curr.diffp);
+            const bc = nextEdge.diffp;
+            var alpha_1 = math.signedAngle(ba, bc);
+            if (alpha_1 < 0) alpha_1 += 2 * std.math.pi;
+
+            const cb = math.PointNegate(bc);
+            const cd = nextEdge.next.diffp;
+            var alpha_2 = math.signedAngle(cb, cd);
+            if (alpha_2 < 0) alpha_2 += 2 * std.math.pi;
+
+            const m_1 = @max(alpha_1, std.math.pi) + @max(alpha_2, std.math.pi);
+
+            const insert_val: MetricEdgeRef = .{ .edge = nextEdge, .value = m_1 };
+            const idx = bisectLeft(sorted[0..count], insert_val.value);
+            std.mem.copyBackwards(MetricEdgeRef, sorted[idx + 1 .. count + 1], sorted[idx..count]);
+            sorted[idx] = insert_val;
+            count += 1;
+        }
+        return .{ .idx = 0, .sorted = sorted, .allocator = allocator };
+        // const edge = sorted[sorted.len - 1].edge;
+    }
+
+    fn deinit(self: StartingEdgePicker) void {
+        self.allocator.free(self.sorted);
+    }
+
+    fn bisectLeft(arr: []const MetricEdgeRef, target: f32) usize {
+        var lo: usize = 0;
+        var hi: usize = arr.len;
+        while (lo < hi) {
+            const mid = (lo + hi) / 2;
+            if (arr[mid].value < target)
+                lo = mid + 1
+            else
+                hi = mid;
+        }
+        return lo;
+    }
+};
 
 fn vertexIsValid(edge: *Edge, other_vertex: Point, searchContour: Contour, delauneyTriangleWindingOrder: WindingOrder) bool {
     var vertex_is_valid = true;
@@ -823,8 +896,9 @@ fn vertexIsValid(edge: *Edge, other_vertex: Point, searchContour: Contour, delau
 // https://math.stackexchange.com/a/1425630
 //
 fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
-    const vAC = edgeB.rp - edgeA.rp;
-    const vAD = edgeB.lp - edgeA.rp;
+    const vAC = PointSubtract(edgeB.rp, edgeA.rp);
+    const vAD = PointSubtract(edgeB.lp, edgeA.rp);
+
     std.debug.print("vAC=({},{}),vAD=({},{})\n", .{ vAC[0], vAC[1], vAD[0], vAD[1] });
     if (PointZero(vAC)) { // implies hC = 0
         // both edges anchor the same point
@@ -832,11 +906,11 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         // either colinear or no intersect
         const hD = math.cross(edgeA.diffp, vAD);
         if (hD == 0) { // colinear
-            const minCD = @min(edgeB.rp, edgeB.lp);
-            const maxAB = @max(edgeA.rp, edgeA.lp);
-            const maxCD = @max(edgeB.rp, edgeB.lp);
-            const minAB = @min(edgeA.rp, edgeA.lp);
-            return @reduce(.And, minCD < maxAB) and @reduce(.And, maxCD > minAB);
+            const minCD = math.PointMin(edgeB.rp, edgeB.lp);
+            const maxAB = math.PointMax(edgeA.rp, edgeA.lp);
+            const maxCD = math.PointMax(edgeB.rp, edgeB.lp);
+            const minAB = math.PointMin(edgeA.rp, edgeA.lp);
+            return math.PointLessThan(minCD, maxAB) and math.PointLessThan(minAB, maxCD);
         } else {
             return false;
         }
@@ -846,11 +920,11 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         const hC = math.cross(edgeA.diffp, vAC);
         std.debug.print("hC={}\n", .{hC});
         if (hC == 0) { // colinear
-            const minCD = @min(edgeB.rp, edgeB.lp);
-            const maxAB = @max(edgeA.rp, edgeA.lp);
-            const maxCD = @max(edgeB.rp, edgeB.lp);
-            const minAB = @min(edgeA.rp, edgeA.lp);
-            return @reduce(.And, minCD < maxAB) and @reduce(.And, maxCD > minAB);
+            const minCD = math.PointMin(edgeB.rp, edgeB.lp);
+            const maxAB = math.PointMax(edgeA.rp, edgeA.lp);
+            const maxCD = math.PointMax(edgeB.rp, edgeB.lp);
+            const minAB = math.PointMin(edgeA.rp, edgeA.lp);
+            return math.PointLessThan(minCD, maxAB) and math.PointLessThan(minAB, maxCD);
         } else {
             return false;
         }
@@ -859,14 +933,14 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         const hC = math.cross(edgeA.diffp, vAC);
         const hD = math.cross(edgeA.diffp, vAD);
         if (hC == 0 and hD == 0) { // colinear
-            const minCD = @min(edgeB.rp, edgeB.lp);
-            const maxAB = @max(edgeA.rp, edgeA.lp);
-            const maxCD = @max(edgeB.rp, edgeB.lp);
-            const minAB = @min(edgeA.rp, edgeA.lp);
-            return @reduce(.And, minCD <= maxAB) and @reduce(.And, maxCD >= minAB);
+            const minCD = math.PointMin(edgeB.rp, edgeB.lp);
+            const maxAB = math.PointMax(edgeA.rp, edgeA.lp);
+            const maxCD = math.PointMax(edgeB.rp, edgeB.lp);
+            const minAB = math.PointMin(edgeA.rp, edgeA.lp);
+            return math.PointLessThanEqual(minCD, maxAB) and math.PointLessThanEqual(minAB, maxCD);
         }
-        const gA = math.cross(edgeB.diffp, edgeA.rp - edgeB.rp);
-        const gB = math.cross(edgeB.diffp, edgeA.lp - edgeB.rp);
+        const gA = math.cross(edgeB.diffp, PointSubtract(edgeA.rp, edgeB.rp));
+        const gB = math.cross(edgeB.diffp, PointSubtract(edgeA.lp, edgeB.rp));
         return hC * hD <= 0 and gA * gB <= 0;
     }
 }
@@ -888,9 +962,10 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
     if (domain.holes.len == 0) {
         const currentContour = domain.outer;
 
-        const original_starting_edge = try findStartingEdge(allocator, currentContour);
-        var starting_edge = original_starting_edge;
-        while (starting_edge.next.idx != original_starting_edge.idx) {
+        var startingEdgePicker: StartingEdgePicker = try .init(allocator, currentContour);
+        defer startingEdgePicker.deinit();
+        var starting_edge = startingEdgePicker.next();
+        while (startingEdgePicker.idx < startingEdgePicker.sorted.len) {
             std.debug.print("starting_edge={s}\n", .{try printer.edge(starting_edge)});
             printer.free_last();
 
@@ -904,7 +979,11 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
             const consideringEdgeStart = &currentContour.edges[0];
             var consideringEdge = consideringEdgeStart.next;
             while (consideringEdge.idx != consideringEdgeStart.idx) {
-                if (isInHalfPlane(currentContour.windingOrder, -starting_edge.diffp, consideringEdge.rp - starting_edge.lp))
+                if (isInHalfPlane(
+                    currentContour.windingOrder,
+                    math.PointNegate(starting_edge.diffp),
+                    PointSubtract(consideringEdge.rp, starting_edge.lp),
+                ))
                     try potential_other_vertices.append(allocator, consideringEdge); // inside halfplane
                 consideringEdge = consideringEdge.next;
             }
@@ -1010,12 +1089,13 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
             }
 
             if (found_delauney_triangle) break;
-            starting_edge = starting_edge.next;
+            starting_edge = startingEdgePicker.next();
         }
     } else if (domain.holes.len == 1) {
-        const original_starting_edge = try findStartingEdge(allocator, domain.holes[0]);
-        var starting_edge = original_starting_edge;
-        while (starting_edge.next.idx != original_starting_edge.idx) {
+        var startingEdgePicker: StartingEdgePicker = try .init(allocator, domain.holes[0]);
+        defer startingEdgePicker.deinit();
+        var starting_edge = startingEdgePicker.next();
+        while (startingEdgePicker.idx < startingEdgePicker.sorted.len) {
             std.debug.print("startingEdge={s}\n", .{try printer.edge(starting_edge)});
             printer.free_last();
             //
@@ -1037,8 +1117,8 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                 //
                 if (!isInHalfPlane(
                     domain.outer.windingOrder,
-                    -starting_edge.diffp,
-                    consideringVertex - starting_edge.lp,
+                    math.PointNegate(starting_edge.diffp),
+                    PointSubtract(consideringVertex, starting_edge.lp),
                 )) continue;
 
                 //
@@ -1116,7 +1196,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
             }
 
             if (found_delauney_triangle) break;
-            starting_edge = starting_edge.next;
+            starting_edge = startingEdgePicker.next();
         }
     } else {
         // what could happen
@@ -1134,9 +1214,10 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
             @memcpy(otherHoles[0..currentHoleIdx], domain.holes[0..currentHoleIdx]);
             @memcpy(otherHoles[currentHoleIdx..], domain.holes[currentHoleIdx + 1 ..]);
 
-            const original_starting_edge = try findStartingEdge(allocator, currentHole);
-            var starting_edge = original_starting_edge;
-            while (starting_edge.next.idx != original_starting_edge.idx) {
+            var startingEdgePicker: StartingEdgePicker = try .init(allocator, currentHole);
+            defer startingEdgePicker.deinit();
+            var starting_edge = startingEdgePicker.next();
+            while (startingEdgePicker.idx < startingEdgePicker.sorted.len) {
                 std.debug.print("startingEdge={s}\n", .{try printer.edge(starting_edge)});
                 printer.free_last();
                 //
@@ -1155,8 +1236,8 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                             printer.free_last();
                             if (!isInHalfPlane(
                                 domain.outer.windingOrder,
-                                -starting_edge.diffp,
-                                consideringVertex - starting_edge.lp,
+                                math.PointNegate(starting_edge.diffp),
+                                PointSubtract(consideringVertex, starting_edge.lp),
                             )) continue;
                             std.debug.print("L={{Element(startingEdge, 1), Element(startingEdge, 2), {s}}}\n", .{try printer.point(consideringVertex)});
                             try consideringEdges.append(allocator, consideringEdge);
@@ -1301,8 +1382,8 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                             printer.free_last();
                             if (!isInHalfPlane(
                                 domain.outer.windingOrder,
-                                -starting_edge.diffp,
-                                consideringVertex - starting_edge.lp,
+                                math.PointNegate(starting_edge.diffp),
+                                PointSubtract(consideringVertex, starting_edge.lp),
                             )) continue;
                             std.debug.print("L={{Element(startingEdge, 1), Element(startingEdge, 2), {s}}}\n", .{try printer.point(consideringVertex)});
                             try consideringEdges.append(allocator, consideringEdge);
@@ -1346,7 +1427,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                 }
 
                 if (found_delauney_triangle) break;
-                starting_edge = starting_edge.next;
+                starting_edge = startingEdgePicker.next();
             }
 
             if (found_delauney_triangle) break;
@@ -1357,6 +1438,11 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
         return errors.BadContour;
     }
 }
+
+const Mesh = struct {
+    vertices: []@Vector(3, f32),
+    indices: []u16,
+};
 
 // https://cg.cs.uni-bonn.de/backend/v1/files/publications/klein-1996-construction.pdf
 pub fn triangulatePolygonalDomains(allocator: std.mem.Allocator, printer: *Printer, polygonalDomains: []PolygonalDomain) !void {
@@ -1417,30 +1503,34 @@ pub fn main() !void {
         }
         var buf: [4]u8 = undefined; // max UTF-8 length for a single code point is 4 bytes
         for (renderChars) |renderChar| {
+            const allocator = std.heap.page_allocator;
+            var printer: Printer = try .init(allocator);
+            defer printer.deinit();
+
             const len = try std.unicode.utf8Encode(@intCast(renderChar), &buf);
             std.debug.print("rendering {s}\n", .{buf[0..len]});
             const glyph_index = face.getCharIndex(renderChar).?;
+
             try face.loadGlyph(glyph_index, .{});
-            const glyph = face.glyph();
-            try glyph.render(.sdf);
-            var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-            defer arena.deinit();
-            const alloc = arena.allocator();
-            // try glyph_write_bmp(glyph, try std.fmt.allocPrint(alloc, "glyph-out/out-{s}.bmp", .{buf[0..len]}));
-            const contours = try bezier(alloc, glyph.outline);
-            const polygonalDomains = try contoursPolygonalDomains(alloc, contours);
-            for (polygonalDomains) |domain| {
-                std.debug.print("outer={} nholes={}\n", .{ domain.outer.edgesCount, domain.holes.len });
+            const contours = try parseOutlineBezier(allocator, face.glyph().outline());
+            const polygonalDomains = try contoursPolygonalDomains(allocator, contours);
+            for (polygonalDomains, 0..) |domain, domainIdx| {
+                std.debug.print("domain{}:\n{s}\n", .{ domainIdx, try printer.domain(&domain) });
+                printer.free_last();
             }
-            try triangulatePolygonalDomains(alloc, polygonalDomains);
+            try triangulatePolygonalDomains(allocator, &printer, polygonalDomains);
         }
     }
 
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    const allocator = std.heap.page_allocator;
+    var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const alloc = arena.allocator();
+    const arenaAllocator = arena.allocator();
 
-    const glyph_index = face.getCharIndex('8').?;
+    var printer: Printer = try .init(arenaAllocator);
+    defer printer.deinit();
+
+    const glyph_index = face.getCharIndex('%').?;
 
     // try face.loadGlyph(glyph_index, .{});
     // const glyph = face.glyph();
@@ -1448,25 +1538,13 @@ pub fn main() !void {
     // try glyph_write_bmp(glyph, "out.bmp");
 
     try face.loadGlyph(glyph_index, .{});
-    const contours = try bezier(alloc, face.glyph().outline().?);
-    const polygonalDomains = try contoursPolygonalDomains(alloc, contours);
-    var printer: Printer = try .init(alloc);
-    for (polygonalDomains, 0..) |domain, i| {
-        std.debug.print("domain {}: outer={} nholes={}\n", .{ i, domain.outer.edgesCount, domain.holes.len });
+    const contours = try parseOutlineBezier(allocator, face.glyph().outline().?);
+    const polygonalDomains = try contoursPolygonalDomains(allocator, contours);
 
-        std.debug.print("outer:\n", .{});
-        for (domain.outer.edges) |e| {
-            std.debug.print("{s},\n", .{try printer.edge(&e)});
-            printer.free_last();
-        }
-        for (domain.holes, 0..) |hole, holeI| {
-            std.debug.print("hole{}:\n", .{holeI});
-            for (hole.edges) |e| {
-                std.debug.print("{s},\n", .{try printer.edge(&e)});
-                printer.free_last();
-            }
-        }
+    for (polygonalDomains, 0..) |domain, domainIdx| {
+        std.debug.print("domain{}:\n{s}\n", .{ domainIdx, try printer.domain(&domain) });
+        printer.free_last();
     }
 
-    try triangulatePolygonalDomains(alloc, &printer, polygonalDomains);
+    try triangulatePolygonalDomains(allocator, &printer, polygonalDomains);
 }

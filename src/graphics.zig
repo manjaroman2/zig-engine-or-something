@@ -1,5 +1,9 @@
 const std = @import("std");
 
+pub const PositionVertex = packed struct {
+    position: [3]f32,
+};
+
 pub const PositionColorVertex = packed struct {
     position: @Vector(3, f32),
     color: @Vector(4, u8),
