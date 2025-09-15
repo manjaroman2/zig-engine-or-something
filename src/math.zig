@@ -50,6 +50,47 @@ pub inline fn signedAngle(a: Point, b: Point) f32 {
     return std.math.atan2(@as(f32, @floatFromInt(a[0] * b[1] - a[1] * b[0])), @as(f32, @floatFromInt(a[0] * b[0] + a[1] * b[1])));
 }
 
+pub inline fn cross(a: Point, b: Point) i64 {
+    return a[0] * b[1] - a[1] * b[0];
+}
+
+pub inline fn isInHalfplaneCCW(a: Point, b: Point) bool {
+    return cross(a, b) > 0;
+}
+
+pub inline fn isInHalfplaneCW(a: Point, b: Point) bool {
+    return cross(a, b) < 0;
+}
+
+pub inline fn lengthSq(a: Point) i64 {
+    return a[0] * a[0] + a[1] * a[1];
+}
+
+pub inline fn delauneyConditionDeterminant(a: Point, b: Point, c: Point, q: Point) i64 {
+    const aqx = a[0] - q[0];
+    const aqy = a[1] - q[1];
+    const bqx = b[0] - q[0];
+    const bqy = b[1] - q[1];
+    const cqx = c[0] - q[0];
+    const cqy = c[1] - q[1];
+    const aq_length_sq = aqx * aqx + aqy * aqy;
+    const bq_length_sq = bqx * bqx + bqy * bqy;
+    const cq_length_sq = cqx * cqx + cqy * cqy;
+    return (aqx * bqy * cq_length_sq + aqy * bq_length_sq * cqx + aq_length_sq * bqx * cqy) - //
+        (cqx * bqy * aq_length_sq + cqy * bq_length_sq * aqx + cq_length_sq * bqx * aqy);
+}
+
+//
+// returns true if q is outside or on the circumcircle of the triangle abc.
+// Conversely returns false if q is strictly (!) inside the circumcircle.
+//
+pub inline fn delauneyConditionCCW(a: Point, b: Point, c: Point, q: Point) bool {
+    return delauneyConditionDeterminant(a, b, c, q) <= 0;
+}
+pub inline fn delauneyConditionCW(a: Point, b: Point, c: Point, q: Point) bool {
+    return delauneyConditionDeterminant(a, b, c, q) >= 0;
+}
+
 pub const PointF = @Vector(2, f32);
 pub const PointF_MIN = .{ std.math.floatMin(f32), std.math.floatMin(f32) };
 pub const PointF_MAX = .{ std.math.floatMax(f32), std.math.floatMax(f32) };

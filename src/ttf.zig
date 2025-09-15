@@ -103,27 +103,71 @@ const WindingOrder = enum {
 
 inline fn isInHalfPlane(windingOrder: WindingOrder, a: Point, b: Point) bool {
     return switch (windingOrder) {
-        .COUNTERCLOCKWISE => isInHalfplaneCCW(a, b),
-        .CLOCKWISE => isInHalfplaneCW(a, b),
+        .COUNTERCLOCKWISE => math.isInHalfplaneCCW(a, b),
+        .CLOCKWISE => math.isInHalfplaneCW(a, b),
     };
 }
 
 inline fn delauneyCondition(windingOrder: WindingOrder, a: Point, b: Point, c: Point, q: Point) bool {
     return switch (windingOrder) {
-        .COUNTERCLOCKWISE => delauneyConditionCCW(a, b, c, q),
-        .CLOCKWISE => delauneyConditionCW(a, b, c, q),
+        .COUNTERCLOCKWISE => math.delauneyConditionCCW(a, b, c, q),
+        .CLOCKWISE => math.delauneyConditionCW(a, b, c, q),
     };
 }
 
 pub const Contour = struct {
     edges: []Edge,
     edgesCount: usize,
-    windingOrder: WindingOrder = undefined,
-    max: Point = Point_MIN,
-    min: Point = Point_MAX,
-    maxEdge: *Edge = undefined,
-    minEdge: *Edge = undefined,
+    windingOrder: WindingOrder,
     segments: std.ArrayList(Segment) = undefined,
+
+    fn fromSegments(allocator: std.mem.Allocator, segments: std.ArrayList(Segment)) !Contour {
+        var edges = try allocator.alloc(Edge, segments.items.len);
+
+        edges[0] = Edge.fromSegment(segments.items[0]);
+        edges[0].idx = 0;
+        var max = edges[0].lp;
+        var maxEdge = &edges[0];
+        var min = edges[0].lp;
+        var minEdge = &edges[0];
+        var i: usize = 1;
+        for (segments.items[1..]) |seg| {
+            const edge = Edge.fromSegment(seg);
+            edges[i] = edge;
+            edges[i].idx = i;
+            edges[i - 1].next = &edges[i];
+            edges[i].prev = &edges[i - 1];
+            if (edge.lp[1] > max[1] and edge.lp[0] > max[0]) {
+                max = edge.lp;
+                maxEdge = &edges[i];
+            } else if (edge.lp[1] < min[1] and edge.lp[0] < min[0]) {
+                min = edge.lp;
+                minEdge = &edges[i];
+            }
+            i += 1;
+        }
+        edges[i - 1].next = &edges[0];
+        edges[0].prev = &edges[i - 1];
+
+        //
+        // Determine winding order
+        //
+        // Reference:
+        // https://stackoverflow.com/a/1180256/199364
+        // https://en.wikipedia.org/wiki/Curve_orientation
+        //
+        const A = minEdge.lp;
+        const B = minEdge.prev.lp;
+        const C = minEdge.next.lp;
+        const metric = math.cross(B - A, C - A);
+        if (metric == 0) return errors.BadContour;
+        return .{
+            .edges = edges,
+            .edgesCount = edges.len,
+            .segments = segments,
+            .windingOrder = if (metric > 0) .CLOCKWISE else .COUNTERCLOCKWISE,
+        };
+    }
 };
 
 pub const Segment = union(enum) {
@@ -165,24 +209,23 @@ pub const errors = error{
 
 // Constructs bezier curves from outline data.
 fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
+    //  So, imagine a tree
+    //  ON=FT_CURVE_TAG_ON, CO=FT_CURVE_TAG_CONIC, CU=FT_CURVE_TAG_CUBIC
+    //  tree_layer
+    //  0           ┌────────────> ON
+    //              │ ┌─────────────┼───────────────────────────────────┐
+    //  1           ├─ON(Line)      CO                                  CU
+    //              │               │                                   │
+    //              │ ┌─────────────┼───────┐                 ┌─────────┼──────────┐
+    //  2           ├─ON(Conic)     CO    CU(🗲)             ON(🗲)     CO(🗲)     CU
+    //              │               │                                              │
+    //              │ ┌─────────────┼───────┐                                      │
+    //  3           ├─ON(2Conic)    CO(🗲) CU(🗲)                        ┌─────────┼──────────┐
+    //              │                                                   ON(Cubic)  CO(🗲)    CU(🗲)
+    //              └────────────────────────────────────────────────────┘
     var contours = try allocator.alloc(Contour, outline.numContours());
     var contour_offset: usize = 0;
     for (outline.contours()[0..outline.numContours()], 0..) |contour_end_index, contourIdx| {
-        //  So, imagine a tree
-        //  ON=FT_CURVE_TAG_ON, CO=FT_CURVE_TAG_CONIC, CU=FT_CURVE_TAG_CUBIC
-        //  tree_layer
-        //  0           ┌────────────> ON
-        //              │ ┌─────────────┼───────────────────────────────────┐
-        //  1           ├─ON(Line)      CO                                  CU
-        //              │               │                                   │
-        //              │ ┌─────────────┼───────┐                 ┌─────────┼──────────┐
-        //  2           ├─ON(Conic)     CO    CU(🗲)             ON(🗲)     CO(🗲)     CU
-        //              │               │                                              │
-        //              │ ┌─────────────┼───────┐                                      │
-        //  3           ├─ON(2Conic)    CO(🗲) CU(🗲)                        ┌─────────┼──────────┐
-        //              │                                                   ON(Cubic)  CO(🗲)    CU(🗲)
-        //              └────────────────────────────────────────────────────┘
-
         const contour_length = @as(usize, @intCast(contour_end_index)) - contour_offset + 1;
         const tag_slice = outline.tags()[contour_offset .. contour_offset + contour_length];
         const point_slice = outline.points()[contour_offset .. contour_offset + contour_length];
@@ -341,59 +384,10 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
             tree_layer += 1;
         }
 
-        contours[contourIdx] = try segmentsProcess(allocator, segments);
-        contours[contourIdx].segments = segments;
+        contours[contourIdx] = try Contour.fromSegments(allocator, segments);
         // defer segments.deinit(allocator);
     }
     return contours;
-}
-
-fn segmentsProcess(allocator: std.mem.Allocator, segments: std.ArrayList(Segment)) !Contour {
-    var contour: Contour = .{
-        .edges = try allocator.alloc(Edge, segments.items.len),
-        .edgesCount = 0,
-    };
-    contour.edges[0] = Edge.fromSegment(segments.items[0]);
-    contour.edges[0].idx = 0;
-    contour.max = contour.edges[0].lp;
-    contour.maxEdge = &contour.edges[0];
-    contour.min = contour.edges[0].lp;
-    contour.minEdge = &contour.edges[0];
-    var i: usize = 1;
-    for (segments.items[1..]) |seg| {
-        const edge = Edge.fromSegment(seg);
-        contour.edges[i] = edge;
-        contour.edges[i].idx = i;
-        contour.edges[i - 1].next = &contour.edges[i];
-        contour.edges[i].prev = &contour.edges[i - 1];
-        if (edge.lp[1] > contour.max[1] and edge.lp[0] > contour.max[0]) {
-            contour.max = edge.lp;
-            contour.maxEdge = &contour.edges[i];
-        } else if (edge.lp[1] < contour.min[1] and edge.lp[0] < contour.min[0]) {
-            contour.min = edge.lp;
-            contour.minEdge = &contour.edges[i];
-        }
-        i += 1;
-    }
-    contour.edges[i - 1].next = &contour.edges[0];
-    contour.edges[0].prev = &contour.edges[i - 1];
-    contour.edgesCount = i;
-
-    //
-    // Determine winding order
-    //
-    // Reference:
-    // https://stackoverflow.com/a/1180256/199364
-    // https://en.wikipedia.org/wiki/Curve_orientation
-    //
-    const A = contour.minEdge.lp;
-    const B = contour.minEdge.prev.lp;
-    const C = contour.minEdge.next.lp;
-    const metric = cross(B - A, C - A);
-    if (metric == 0) return errors.BadContour;
-    contour.windingOrder = if (metric > 0) .CLOCKWISE else .COUNTERCLOCKWISE;
-
-    return contour;
 }
 
 const EdgeState = enum {
@@ -620,7 +614,7 @@ fn isOutermost(contours: []Contour, contourRelations: []ContourType, i: usize) b
 pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contour) ![]PolygonalDomain {
     // The character 'A' for example consists of two contours, one for the outside
     // and another one for the hole. We (TTF) don't know that its a hole
-    // but its essential to know for triangulation.
+    // but its essential to know for our approach to triangulation.
     // Considering contour A and B, there are 3 cases:
     // 1. Some edges of A intersect B.
     //    This is a partial cover.
@@ -725,47 +719,6 @@ fn bisectLeft(arr: []const MetricEdgeRef, target: f32) usize {
             hi = mid;
     }
     return lo;
-}
-
-inline fn cross(a: Point, b: Point) i64 {
-    return a[0] * b[1] - a[1] * b[0];
-}
-
-inline fn isInHalfplaneCCW(a: Point, b: Point) bool {
-    return cross(a, b) > 0;
-}
-
-inline fn isInHalfplaneCW(a: Point, b: Point) bool {
-    return cross(a, b) < 0;
-}
-
-inline fn lengthSq(a: Point) i64 {
-    return a[0] * a[0] + a[1] * a[1];
-}
-
-inline fn delauneyConditionDeterminant(a: Point, b: Point, c: Point, q: Point) i64 {
-    const aqx = a[0] - q[0];
-    const aqy = a[1] - q[1];
-    const bqx = b[0] - q[0];
-    const bqy = b[1] - q[1];
-    const cqx = c[0] - q[0];
-    const cqy = c[1] - q[1];
-    const aq_length_sq = aqx * aqx + aqy * aqy;
-    const bq_length_sq = bqx * bqx + bqy * bqy;
-    const cq_length_sq = cqx * cqx + cqy * cqy;
-    return (aqx * bqy * cq_length_sq + aqy * bq_length_sq * cqx + aq_length_sq * bqx * cqy) - //
-        (cqx * bqy * aq_length_sq + cqy * bq_length_sq * aqx + cq_length_sq * bqx * aqy);
-}
-
-//
-// returns true if q is outside or on the circumcircle of the triangle abc.
-// Conversely returns false if q is strictly (!) inside the circumcircle.
-//
-inline fn delauneyConditionCCW(a: Point, b: Point, c: Point, q: Point) bool {
-    return delauneyConditionDeterminant(a, b, c, q) <= 0;
-}
-inline fn delauneyConditionCW(a: Point, b: Point, c: Point, q: Point) bool {
-    return delauneyConditionDeterminant(a, b, c, q) >= 0;
 }
 
 const SubContourBuilder = struct {
@@ -877,7 +830,7 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         // both edges anchor the same point
         if (PointZero(vAD)) return false; // degenerate case: edge is point
         // either colinear or no intersect
-        const hD = cross(edgeA.diffp, vAD);
+        const hD = math.cross(edgeA.diffp, vAD);
         if (hD == 0) { // colinear
             const minCD = @min(edgeB.rp, edgeB.lp);
             const maxAB = @max(edgeA.rp, edgeA.lp);
@@ -890,7 +843,7 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
     } else if (PointZero(vAD)) { // implies hD = 0
         // also vAC != 0 in this branch
         // either colinear or no intersect
-        const hC = cross(edgeA.diffp, vAC);
+        const hC = math.cross(edgeA.diffp, vAC);
         std.debug.print("hC={}\n", .{hC});
         if (hC == 0) { // colinear
             const minCD = @min(edgeB.rp, edgeB.lp);
@@ -903,8 +856,8 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         }
     } else {
         // vAC != 0 and vAD != 0 in this branch
-        const hC = cross(edgeA.diffp, vAC);
-        const hD = cross(edgeA.diffp, vAD);
+        const hC = math.cross(edgeA.diffp, vAC);
+        const hD = math.cross(edgeA.diffp, vAD);
         if (hC == 0 and hD == 0) { // colinear
             const minCD = @min(edgeB.rp, edgeB.lp);
             const maxAB = @max(edgeA.rp, edgeA.lp);
@@ -912,8 +865,8 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
             const minAB = @min(edgeA.rp, edgeA.lp);
             return @reduce(.And, minCD <= maxAB) and @reduce(.And, maxCD >= minAB);
         }
-        const gA = cross(edgeB.diffp, edgeA.rp - edgeB.rp);
-        const gB = cross(edgeB.diffp, edgeA.lp - edgeB.rp);
+        const gA = math.cross(edgeB.diffp, edgeA.rp - edgeB.rp);
+        const gB = math.cross(edgeB.diffp, edgeA.lp - edgeB.rp);
         return hC * hD <= 0 and gA * gB <= 0;
     }
 }
