@@ -1,0 +1,4 @@
+[submodule "third-party/mach-freetype"]
+	path = third-party/mach-freetype
+	url = git@github.com:manjaroman2/mach-freetype.git
+	branch = 0.15.1
