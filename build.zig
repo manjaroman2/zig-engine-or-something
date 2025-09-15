@@ -4,65 +4,79 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const mach_freetype_dep = b.dependency("mach_freetype", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const mach_freetype_mod = mach_freetype_dep.module("mach-freetype");
+    const mach_harfbuzz_mod = mach_freetype_dep.module("mach-harfbuzz");
+
     const exe_mod = b.createModule(.{
-        .root_source_file = b.path("src/main.zig"),
+        .root_source_file = b.path("src/ttf.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    const sdl3 = b.dependency("sdl3", .{
-        .target = target,
-        .optimize = optimize,
-        .ext_ttf = true,
-        .ext_image = true,
-        .ext_net = true,
-    });
+    exe_mod.addImport("coolfreetype", mach_freetype_mod);
+    exe_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
 
-    exe_mod.addImport("sdl3", sdl3.module("sdl3"));
-
-    const zigimg = b.dependency("zigimg", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    exe_mod.addImport("zigimg", zigimg.module("zigimg"));
+    // const freetype_dep = b.dependency("freetype", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    //     // Optional: enable libpng support
+    //     .@"enable-libpng" = false,
+    // });
+    // exe_mod.addImport("freetype", freetype_dep.module("freetype"));
+    // exe_mod.linkLibrary(freetype_dep.artifact("freetype"));
 
     const exe = b.addExecutable(.{
         .name = "testing_zig",
         .root_module = exe_mod,
     });
 
+    // sdl3
+    // const sdl3 = b.dependency("sdl3", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    //     .ext_ttf = true,
+    //     .ext_image = true,
+    //     .ext_net = true,
+    // });
+    // exe_mod.addImport("sdl3", sdl3.module("sdl3"));
+    // zigimg
+    // const zigimg = b.dependency("zigimg", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    // exe_mod.addImport("zigimg", zigimg.module("zigimg"));
+
+    // harfbuzz c-link
+    // const harfbuzz = b.dependency("harfbuzz", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    //     .enable_freetype = false,
+    //     .freetype_use_system_zlib = false,
+    //     .freetype_enable_brotli = false,
+    // });
+    // exe.linkLibrary(harfbuzz.artifact("harfbuzz"));
+
+    // compile shaders
     const compile_shaders = b.step("compile-shaders", "Compile GLSL to SPIR-V");
     compileShaders(b, compile_shaders);
     exe.step.dependOn(compile_shaders);
 
+    // done
     b.installArtifact(exe);
 
+    // zig build run
     const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
-
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
-
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
-
-    // const lib_unit_tests = b.addTest(.{
-    //     .root_module = lib_mod,
-    // });
-    //
-    // const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
-    //
-    // const exe_unit_tests = b.addTest(.{
-    //     .root_module = exe_mod,
-    // });
-    //
-    // const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
-    //
-    // const test_step = b.step("test", "Run unit tests");
-    // test_step.dependOn(&run_lib_unit_tests.step);
-    // test_step.dependOn(&run_exe_unit_tests.step);
 }
 
 fn compileShaders(b: *std.Build, compile_shaders: *std.Build.Step) void {
@@ -136,15 +150,48 @@ fn compileShaders(b: *std.Build, compile_shaders: *std.Build.Step) void {
             output_path,
         });
 
-        // std.debug.print("in: {s}\n", .{input_path});
-        // std.debug.print("out: {s}\n", .{output_path});
-        //
-        // const naga_command = b.addSystemCommand(&.{
-        //     "naga",
-        //     input_path,
-        //     output_path,
-        // });
-
         compile_shaders.dependOn(&glslc_command.step);
     }
 }
+const freetype_srcs: []const []const u8 = &.{
+    "src/autofit/autofit.c",
+    "src/base/ftbase.c",
+    "src/base/ftbbox.c",
+    "src/base/ftbdf.c",
+    "src/base/ftbitmap.c",
+    "src/base/ftcid.c",
+    "src/base/ftfstype.c",
+    "src/base/ftgasp.c",
+    "src/base/ftglyph.c",
+    "src/base/ftgxval.c",
+    "src/base/ftinit.c",
+    "src/base/ftmm.c",
+    "src/base/ftotval.c",
+    "src/base/ftpatent.c",
+    "src/base/ftpfr.c",
+    "src/base/ftstroke.c",
+    "src/base/ftsynth.c",
+    "src/base/fttype1.c",
+    "src/base/ftwinfnt.c",
+    "src/bdf/bdf.c",
+    "src/bzip2/ftbzip2.c",
+    "src/cache/ftcache.c",
+    "src/cff/cff.c",
+    "src/cid/type1cid.c",
+    "src/gzip/ftgzip.c",
+    "src/lzw/ftlzw.c",
+    "src/pcf/pcf.c",
+    "src/pfr/pfr.c",
+    "src/psaux/psaux.c",
+    "src/pshinter/pshinter.c",
+    "src/psnames/psnames.c",
+    "src/raster/raster.c",
+    "src/sdf/sdf.c",
+    "src/sfnt/sfnt.c",
+    "src/smooth/smooth.c",
+    "src/svg/svg.c",
+    "src/truetype/truetype.c",
+    "src/type1/type1.c",
+    "src/type42/type42.c",
+    "src/winfonts/winfnt.c",
+};

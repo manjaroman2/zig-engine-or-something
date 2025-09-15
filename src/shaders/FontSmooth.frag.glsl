@@ -28,7 +28,7 @@ const float PI = 3.14159265359;
 const float PI_2 = PI * 2;
 const float PI_HALF = PI / 2;
 
-const float edgeWidth = 0.01;  // smaller = sharper
+const float edgeWidth = 0.05;  // smaller = sharper
 
 float sin_wave(float x) {
     return 0.5 * sin(PI_2 / period * (x - speed * time) - PI_HALF) + 0.5;
@@ -37,7 +37,7 @@ float sin_wave(float x) {
 void main() {
     float alpha = texture(FontTexture, vec3(fragUV.xy, Layer)).a;
     alpha = smoothstep(0.5 - edgeWidth, 0.5 + edgeWidth, alpha);
-    if (alpha < 0.1) discard;
+    if (alpha >= 0.99 || alpha <= 0.0) discard;
 
     float tx = (WorldPos.x - gradientMin.x) / (gradientMax.x - gradientMin.x);
     tx = clamp(tx, 0.0, 1.0);
@@ -46,6 +46,5 @@ void main() {
 
     // gl_FragDepth = clamp(0.5*(1 - alpha)+WorldPos.z, 0.0, 1.0);
     // gl_FragDepth = WorldPos.z + pow((1 - alpha), 2.0) * (1 - WorldPos.z);
-    gl_FragDepth = 1 - alpha;
     outColor = vec4(col, fragColor.a * alpha);
 }

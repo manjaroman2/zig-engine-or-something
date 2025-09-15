@@ -1,3 +1,4 @@
 renderdoc
 zig-out/
 .zig-cache/
+glyph-out/
