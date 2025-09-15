@@ -1,7 +1,16 @@
 const std = @import("std");
 const graphics = @import("graphics.zig");
 const math = @import("math.zig");
-const PositionTextureColorLayeredVertex = graphics.PositionTextureColorLayeredVertex;
+const ZERO_U64 = math.ZERO_U64;
+const ONE_U64 = math.ONE_U64;
+const Point = math.Point;
+const Point_MIN = math.Point_MIN;
+const Point_MAX = math.Point_MAX;
+const PointEqual = math.PointEqual;
+const PointZero = math.PointZero;
+const PointInterpolate = math.PointInterpolate;
+const PointF = math.PointF;
+const PointFfromInt = math.PointFfromInt;
 
 const freetype = @import("coolfreetype");
 const harfbuzz = @import("coolharfbuzz");
@@ -10,9 +19,6 @@ fn print_version(library: freetype.Library) !void {
     const version = library.version();
     std.log.info("FreeType version: {}.{}.{}\n", .{ version.major, version.minor, version.patch });
 }
-
-const ZERO_U64: u64 = 0;
-const ONE_U64: u64 = 1;
 
 fn glyph_write_bmp(glyph: freetype.GlyphSlot, outfile: []const u8) !void {
     const file = try std.fs.cwd().createFile(outfile, .{
@@ -25,17 +31,6 @@ fn glyph_write_bmp(glyph: freetype.GlyphSlot, outfile: []const u8) !void {
     const buffer: []const u8 = glyph.bitmap().buffer().?[0 .. glyph.bitmap().width() * glyph.bitmap().rows()];
     try file.writeAll(buffer);
     std.debug.print("glyph -> {s}\n", .{outfile});
-}
-
-const Point = @Vector(2, i64);
-const Point_MIN = .{ std.math.minInt(i64), std.math.minInt(i64) };
-const Point_MAX = .{ std.math.maxInt(i64), std.math.maxInt(i64) };
-inline fn PointEqual(a: Point, b: Point) bool {
-    return a[0] == b[0] and a[1] == b[1];
-}
-
-inline fn PointZero(a: Point) bool {
-    return a[0] == 0 and a[0] == 0;
 }
 
 const Printer = struct {
@@ -101,14 +96,6 @@ const Printer = struct {
     }
 };
 
-const PointF = @Vector(2, f32);
-const PointF_MIN = .{ std.math.floatMin(f32), std.math.floatMin(f32) };
-const PointF_MAX = .{ std.math.floatMax(f32), std.math.floatMax(f32) };
-
-fn PointF_fromInt(int: anytype) PointF {
-    return @as(PointF, @floatFromInt(int));
-}
-
 const WindingOrder = enum {
     COUNTERCLOCKWISE,
     CLOCKWISE,
@@ -153,27 +140,23 @@ pub const Segment = union(enum) {
     }
 };
 
-pub const Line = packed struct {
+pub const Line = struct {
     start: Point,
     end: Point,
 };
 
-pub const ConicBezier = packed struct {
+pub const ConicBezier = struct {
     start: Point,
     end: Point,
     control: Point,
 };
 
-pub const CubicBezier = packed struct {
+pub const CubicBezier = struct {
     start: Point,
     end: Point,
     control_1: Point,
     control_2: Point,
 };
-
-fn interpolate(pointA: Point, pointB: Point) Point {
-    return @divFloor(pointA + pointB, @as(Point, @splat(2)));
-}
 
 pub const errors = error{
     BadTag,
@@ -229,7 +212,7 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
                     last = freetype.c.FT_CURVE_TAG_CONIC;
                 },
                 freetype.c.FT_CURVE_TAG_CONIC => {
-                    try points.append(allocator, interpolate(
+                    try points.append(allocator, PointInterpolate(
                         Point{
                             @intCast(point_slice[0].x),
                             @intCast(point_slice[0].y),
@@ -306,7 +289,7 @@ fn bezier(allocator: std.mem.Allocator, outline: freetype.Outline) ![]Contour {
                                 var offs: usize = tree_layer - 2;
                                 var start = points.items[i - offs - 2];
                                 while (true) {
-                                    const intermediatePoint = interpolate(
+                                    const intermediatePoint = PointInterpolate(
                                         points.items[i - offs - 1],
                                         points.items[i - offs - 0],
                                     );
@@ -413,135 +396,6 @@ fn segmentsProcess(allocator: std.mem.Allocator, segments: std.ArrayList(Segment
     return contour;
 }
 
-fn print_bezier_points(glyph: freetype.c.struct_FT_GlyphSlotRec_) void {
-    const outline = glyph.outline;
-    const tags = outline.tags[0..outline.n_points];
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_ON});
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_CONIC});
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_CUBIC});
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_HAS_SCANMODE});
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_TOUCH_X});
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_TOUCH_Y});
-    std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG_TOUCH_BOTH});
-    // std.debug.print("{}\n", .{freetype.c.FT_CURVE_TAG(outline.flags)});
-    std.debug.print("{}\n", .{outline.tags[0]});
-    std.debug.assert(tags[0] & 0x03 == freetype.c.FT_CURVE_TAG_ON);
-
-    for (0..outline.n_points) |i| {
-        const point = outline.points[i];
-        const tag = tags[i];
-        switch (tag & 0x03) {
-            freetype.c.FT_CURVE_TAG_ON => {
-                std.debug.print("FT_CURVE_TAG_ON", .{});
-            },
-            freetype.c.FT_CURVE_TAG_CONIC => {
-                std.debug.print("FT_CURVE_TAG_CONIC", .{});
-            },
-            freetype.c.FT_CURVE_TAG_CUBIC => {
-                std.debug.print("FT_CURVE_TAG_CUBIC", .{});
-            },
-            else => {
-                std.debug.print("unknown", .{});
-            },
-        }
-        std.debug.print("({},{})\n", .{ point.x, point.y });
-    }
-}
-
-pub fn geometricMedian(points: []const Point, max_iters: usize, eps: f32) Point {
-    // start with centroid as initial guess
-    var sum: Point = .{ 0, 0 };
-    for (points) |p| {
-        sum += p;
-    }
-    var xy = @divFloor(sum, @as(Point, @splat(@intCast(points.len))));
-    var i: usize = 0;
-    while (i < max_iters) : (i += 1) {
-        var num_xy: @Vector(2, f32) = .{ 0, 0 };
-        var denom: f32 = 0;
-
-        for (points) |p| {
-            const dxy = xy - p;
-            const dist = @sqrt(@as(f32, @floatFromInt(@reduce(.Add, dxy * dxy))));
-
-            if (dist < eps) {
-                return p;
-            }
-
-            const w = 1.0 / dist;
-            num_xy = @mulAdd(@Vector(2, f32), @floatFromInt(p), @splat(w), num_xy);
-            denom += w;
-        }
-
-        const new_xy: Point = @intFromFloat(num_xy / @as(@Vector(2, f32), @splat(denom)));
-
-        if (@reduce(.And, @as(Point, @intCast(@abs(new_xy - xy))) <= @as(Point, @splat(0)))) {
-            break;
-        }
-
-        xy = new_xy;
-    }
-
-    return xy;
-}
-
-fn rotate(point: PointF, degree: f32) PointF {
-    const t = std.math.degreesToRadians(degree);
-    const v: @Vector(2, f32) = .{ @cos(t), -@sin(t) };
-    const u: @Vector(2, f32) = .{ @sin(t), @cos(t) };
-    return .{
-        @reduce(.Add, v * point),
-        @reduce(.Add, u * point),
-    };
-}
-
-inline fn orthogonal(p: PointF) PointF {
-    return .{ -p[1], p[0] };
-}
-
-inline fn scaledOrthogonal(point: PointF, scalar: f32) PointF {
-    return .{ -point[1] * scalar, point[0] * scalar };
-}
-
-inline fn magnitude(point: PointF) f32 {
-    return @sqrt(@reduce(.Add, point * point));
-}
-
-inline fn halfCrossProduct(a: PointF, b: PointF) f32 {
-    return a[1] * b[0] - a[0] * b[1];
-    // return @reduce(.Add, a * orthogonal(b));
-}
-
-inline fn barycentric(p: PointF, a: PointF, b: PointF, c: PointF) PointF {
-    const scalar = 1.0 / (halfCrossProduct(c, b) + (b - c) * orthogonal(a));
-    const p_orthogonal = orthogonal(p);
-    const s = scalar * (halfCrossProduct(a, c) + (c - a) * p_orthogonal);
-    const t = scalar * (halfCrossProduct(b, a) + (a - b) * p_orthogonal);
-    return .{ s, t };
-}
-
-// inline fn planarPointWithinTriangle(p: PointF, a: PointF, b: PointF, c: PointF) bool {
-//     const st = barycentric(p, a, b, c);
-//     const s = st[0];
-//     const t = st[1];
-//     return (-s <= EPS_F32 and -t <= EPS_F32 and s + t - 1 <= EPS_F32);
-// }
-
-inline fn sign(p1: PointF, p2: PointF, p3: PointF) bool {
-    return (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1]);
-}
-
-inline fn pointInTriangle(p: PointF, a: PointF, b: PointF, c: PointF) bool {
-    const b1 = sign(p, a, b) < 0;
-    const b2 = sign(p, b, c) < 0;
-    const b3 = sign(p, c, a) < 0;
-    return (b1 == b2) and (b2 == b3);
-}
-
-inline fn isConvex(a: PointF, b: PointF, c: PointF) bool {
-    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0;
-}
-
 const EdgeState = enum {
     PLUS,
     MINUS,
@@ -587,9 +441,9 @@ const Edge = struct {
                 .diffp = s.start - s.end,
             },
         };
-        ret.lpF = PointF_fromInt(ret.lp);
-        ret.rpF = PointF_fromInt(ret.rp);
-        ret.diffpF = PointF_fromInt(ret.diffp);
+        ret.lpF = PointFfromInt(ret.lp);
+        ret.rpF = PointFfromInt(ret.rp);
+        ret.diffpF = PointFfromInt(ret.diffp);
         ret.stateY = EdgeState.fromDiff(ret.diffp[1]);
         ret.stateX = EdgeState.fromDiff(ret.diffp[0]);
         ret.m = ret.diffpF[1] / ret.diffpF[0];
@@ -673,7 +527,7 @@ fn countRayIntersections(contourJ: Contour, edge: Edge) u32 {
             hitVertex = @reduce(.And, next.lp == curr.rp);
         } else {
             // no vertex hit, just intersecting edges
-            const result = intersectWithEdge(PointF_fromInt(p), curr.*);
+            const result = intersectWithEdge(PointFfromInt(p), curr.*);
             if (result.hasIntersection) intersectionCount += 1;
             // if (debug) std.debug.print("{} {} {} λ={} γ={}\n", .{ i, intersectionCount, result.hasIntersection, result.lambda, result.gamma });
             curr = next;
@@ -741,11 +595,6 @@ const ContourType = enum {
 const PolygonalDomain = struct {
     outer: Contour,
     holes: []Contour,
-};
-
-const TreeNode = struct {
-    value: usize,
-    children: std.ArrayList(TreeNode),
 };
 
 fn isOutermost(contours: []Contour, contourRelations: []ContourType, i: usize) bool {
@@ -858,18 +707,6 @@ pub fn contoursPolygonalDomains(allocator: std.mem.Allocator, contours: []Contou
         polygonalDomains.appendAssumeCapacity(polygonalDomain);
     }
     return polygonalDomains.toOwnedSlice(allocator);
-}
-
-inline fn dotProduct(a: Point, b: Point) i64 {
-    return @reduce(.Add, a * b);
-}
-
-inline fn length(a: Point) f32 {
-    return @sqrt(@as(f32, @floatFromInt(@reduce(.Add, a * a))));
-}
-
-inline fn signedAngle(a: Point, b: Point) f32 {
-    return std.math.atan2(@as(f32, @floatFromInt(a[0] * b[1] - a[1] * b[0])), @as(f32, @floatFromInt(a[0] * b[0] + a[1] * b[1])));
 }
 
 const MetricEdgeRef = struct {
@@ -989,12 +826,12 @@ pub fn findStartingEdge(allocator: std.mem.Allocator, contour: Contour) !*Edge {
         const next = curr.next;
         const ba = -curr.diffp; // lp - rp
         const bc = next.diffp;
-        var alpha_1 = signedAngle(ba, bc);
+        var alpha_1 = math.signedAngle(ba, bc);
         if (alpha_1 < 0) alpha_1 += 2 * std.math.pi;
 
         const cb = -bc;
         const cd = next.next.diffp;
-        var alpha_2 = signedAngle(cb, cd);
+        var alpha_2 = math.signedAngle(cb, cd);
         if (alpha_2 < 0) alpha_2 += 2 * std.math.pi;
 
         const m_1 = @max(alpha_1, std.math.pi) + @max(alpha_2, std.math.pi);
@@ -1091,14 +928,7 @@ fn formatBitmask(allocator: std.mem.Allocator, value: u64, width: usize) ![]cons
     return buf[0..std.fmt.printInt(buf, value, 2, .lower, fmtops)];
 }
 
-fn triangulatePolygonalDomain(
-    allocator: std.mem.Allocator,
-    printer: *Printer,
-    triangulation: *std.ArrayList(Point),
-    domain: PolygonalDomain,
-    depth: u6,
-    recursionTreeBitmask: u64,
-) !void {
+fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, triangulation: *std.ArrayList(Point), domain: PolygonalDomain, depth: u6, recursionTreeBitmask: u64) !void {
     std.debug.print("CALL triangulatePolygonalDomain() holes={}\n", .{domain.holes.len});
     var found_delauney_triangle = false;
 
