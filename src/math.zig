@@ -55,11 +55,13 @@ pub inline fn PointEqual(a: Point, b: Point) bool {
 pub inline fn PointLessThan(a: Point, b: Point) bool {
     return a[0] < b[0] and a[1] < b[1];
 }
+
 pub inline fn PointLessThanEqual(a: Point, b: Point) bool {
     return a[0] <= b[0] and a[1] <= b[1];
 }
+
 pub inline fn PointZero(a: Point) bool {
-    return a[0] == 0 and a[0] == 0;
+    return a[0] == 0 and a[1] == 0;
 }
 
 pub inline fn PointInterpolate(a: Point, b: Point) Point {

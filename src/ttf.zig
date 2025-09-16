@@ -7,8 +7,13 @@ const Point = math.Point;
 const Point_MIN = math.Point_MIN;
 const Point_MAX = math.Point_MAX;
 const PointEqual = math.PointEqual;
-const PointSubtract = math.PointSubtract;
+const PointLessThan = math.PointLessThan;
+const PointLessThanEqual = math.PointLessThanEqual;
 const PointZero = math.PointZero;
+const PointMin = math.PointMin;
+const PointMax = math.PointMax;
+const PointNegate = math.PointNegate;
+const PointSubtract = math.PointSubtract;
 const PointInterpolate = math.PointInterpolate;
 const PointF = math.PointF;
 const PointFfromInt = math.PointFfromInt;
@@ -193,6 +198,7 @@ const Contour = struct {
         const B = minEdge.prev.lp;
         const C = minEdge.next.lp;
         const metric = math.cross(PointSubtract(B, A), PointSubtract(C, A));
+
         if (metric == 0) return errors.BadContour;
         return .{
             .edges = edges,
@@ -564,6 +570,7 @@ fn rayCountIntersections(contourJ: Contour, edge: Edge) u32 {
                 continue;
             }
             // we encounter the wrong vertex, so we skip, set hitVertex = false
+            // hitVertex = @reduce(.And, next.rp == curr.lp);
             hitVertex = PointEqual(next.rp, curr.lp);
         } else if (p[1] == curr.rp[1]) {
             // vertex is to the left, early skip
@@ -574,7 +581,8 @@ fn rayCountIntersections(contourJ: Contour, edge: Edge) u32 {
                 continue;
             }
             // we encounter the wrong vertex, so we skip, set hitVertex = false
-            hitVertex = PointEqual(next.rp, curr.lp);
+            // hitVertex = @reduce(.And, next.lp == curr.rp);
+            hitVertex = PointEqual(next.lp, curr.rp);
         } else {
             // no vertex hit, just intersecting edges
             if (rayHorizonalIntersectWithEdge(pF, curr.*)) intersectionCount += 1;
@@ -831,12 +839,12 @@ const StartingEdgePicker = struct {
         var count: usize = 0;
         for (contour.edges) |curr| {
             const nextEdge = curr.next;
-            const ba = math.PointNegate(curr.diffp);
+            const ba = PointNegate(curr.diffp);
             const bc = nextEdge.diffp;
             var alpha_1 = math.signedAngle(ba, bc);
             if (alpha_1 < 0) alpha_1 += 2 * std.math.pi;
 
-            const cb = math.PointNegate(bc);
+            const cb = PointNegate(bc);
             const cd = nextEdge.next.diffp;
             var alpha_2 = math.signedAngle(cb, cd);
             if (alpha_2 < 0) alpha_2 += 2 * std.math.pi;
@@ -898,7 +906,6 @@ fn vertexIsValid(edge: *Edge, other_vertex: Point, searchContour: Contour, delau
 fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
     const vAC = PointSubtract(edgeB.rp, edgeA.rp);
     const vAD = PointSubtract(edgeB.lp, edgeA.rp);
-
     std.debug.print("vAC=({},{}),vAD=({},{})\n", .{ vAC[0], vAC[1], vAD[0], vAD[1] });
     if (PointZero(vAC)) { // implies hC = 0
         // both edges anchor the same point
@@ -906,11 +913,11 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         // either colinear or no intersect
         const hD = math.cross(edgeA.diffp, vAD);
         if (hD == 0) { // colinear
-            const minCD = math.PointMin(edgeB.rp, edgeB.lp);
-            const maxAB = math.PointMax(edgeA.rp, edgeA.lp);
-            const maxCD = math.PointMax(edgeB.rp, edgeB.lp);
-            const minAB = math.PointMin(edgeA.rp, edgeA.lp);
-            return math.PointLessThan(minCD, maxAB) and math.PointLessThan(minAB, maxCD);
+            const minCD = PointMin(edgeB.rp, edgeB.lp);
+            const maxAB = PointMax(edgeA.rp, edgeA.lp);
+            const maxCD = PointMin(edgeB.rp, edgeB.lp);
+            const minAB = PointMax(edgeA.rp, edgeA.lp);
+            return PointLessThan(minCD, maxAB) and PointLessThan(minAB, maxCD);
         } else {
             return false;
         }
@@ -920,11 +927,11 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         const hC = math.cross(edgeA.diffp, vAC);
         std.debug.print("hC={}\n", .{hC});
         if (hC == 0) { // colinear
-            const minCD = math.PointMin(edgeB.rp, edgeB.lp);
-            const maxAB = math.PointMax(edgeA.rp, edgeA.lp);
-            const maxCD = math.PointMax(edgeB.rp, edgeB.lp);
-            const minAB = math.PointMin(edgeA.rp, edgeA.lp);
-            return math.PointLessThan(minCD, maxAB) and math.PointLessThan(minAB, maxCD);
+            const minCD = PointMin(edgeB.rp, edgeB.lp);
+            const maxAB = PointMax(edgeA.rp, edgeA.lp);
+            const maxCD = PointMin(edgeB.rp, edgeB.lp);
+            const minAB = PointMax(edgeA.rp, edgeA.lp);
+            return PointLessThan(minCD, maxAB) and PointLessThan(minAB, maxCD);
         } else {
             return false;
         }
@@ -933,11 +940,11 @@ fn edgesIntersect(edgeA: Edge, edgeB: Edge) bool {
         const hC = math.cross(edgeA.diffp, vAC);
         const hD = math.cross(edgeA.diffp, vAD);
         if (hC == 0 and hD == 0) { // colinear
-            const minCD = math.PointMin(edgeB.rp, edgeB.lp);
-            const maxAB = math.PointMax(edgeA.rp, edgeA.lp);
-            const maxCD = math.PointMax(edgeB.rp, edgeB.lp);
-            const minAB = math.PointMin(edgeA.rp, edgeA.lp);
-            return math.PointLessThanEqual(minCD, maxAB) and math.PointLessThanEqual(minAB, maxCD);
+            const minCD = PointMin(edgeB.rp, edgeB.lp);
+            const maxAB = PointMax(edgeA.rp, edgeA.lp);
+            const maxCD = PointMin(edgeB.rp, edgeB.lp);
+            const minAB = PointMax(edgeA.rp, edgeA.lp);
+            return PointLessThanEqual(minCD, maxAB) and PointLessThanEqual(minAB, maxCD);
         }
         const gA = math.cross(edgeB.diffp, PointSubtract(edgeA.rp, edgeB.rp));
         const gB = math.cross(edgeB.diffp, PointSubtract(edgeA.lp, edgeB.rp));
@@ -981,7 +988,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
             while (consideringEdge.idx != consideringEdgeStart.idx) {
                 if (isInHalfPlane(
                     currentContour.windingOrder,
-                    math.PointNegate(starting_edge.diffp),
+                    PointNegate(starting_edge.diffp),
                     PointSubtract(consideringEdge.rp, starting_edge.lp),
                 ))
                     try potential_other_vertices.append(allocator, consideringEdge); // inside halfplane
@@ -1117,7 +1124,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                 //
                 if (!isInHalfPlane(
                     domain.outer.windingOrder,
-                    math.PointNegate(starting_edge.diffp),
+                    PointNegate(starting_edge.diffp),
                     PointSubtract(consideringVertex, starting_edge.lp),
                 )) continue;
 
@@ -1236,7 +1243,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                             printer.free_last();
                             if (!isInHalfPlane(
                                 domain.outer.windingOrder,
-                                math.PointNegate(starting_edge.diffp),
+                                PointNegate(starting_edge.diffp),
                                 PointSubtract(consideringVertex, starting_edge.lp),
                             )) continue;
                             std.debug.print("L={{Element(startingEdge, 1), Element(startingEdge, 2), {s}}}\n", .{try printer.point(consideringVertex)});
@@ -1382,7 +1389,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                             printer.free_last();
                             if (!isInHalfPlane(
                                 domain.outer.windingOrder,
-                                math.PointNegate(starting_edge.diffp),
+                                PointNegate(starting_edge.diffp),
                                 PointSubtract(consideringVertex, starting_edge.lp),
                             )) continue;
                             std.debug.print("L={{Element(startingEdge, 1), Element(startingEdge, 2), {s}}}\n", .{try printer.point(consideringVertex)});
