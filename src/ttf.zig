@@ -101,6 +101,25 @@ const Printer = struct {
         return result;
     }
 
+    fn ggb_contour(self: *Printer, c: *const Contour, name: []const u8) ![]const u8 {
+        const contour_string = try self.contour(c);
+        self.free_last();
+        const source =
+            \\<command name="Polygon">
+            \\<input a0="{{{s}}}"/>
+            \\<output a0="{s}"/>
+            \\</command>
+            \\<element type="polygon" label="poly3">
+            \\<lineStyle thickness="5" type="0" typeHidden="1" opacity="178"/>
+            \\<show object="true" label="false"/>
+            \\<objColor r="153" g="51" b="0" alpha="0.10000000149011612"/>
+            \\<layer val="0"/>
+            \\<labelMode val="0"/>
+            \\</element>
+        ;
+        return try self.allocPrintWithChildren(0, source, .{ contour_string, name });
+    }
+
     fn domain(self: *Printer, d: *const PolygonalDomain) ![]const u8 {
         var holes = try self.allocator.alloc([]const u8, d.holes.len);
         defer {
@@ -963,7 +982,7 @@ fn formatBitmask(allocator: std.mem.Allocator, value: u64, width: usize) ![]cons
 }
 
 fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, triangulation: *std.ArrayList(Point), domain: PolygonalDomain, depth: u6, recursionTreeBitmask: u64) !void {
-    std.debug.print("CALL triangulatePolygonalDomain() holes={}\n", .{domain.holes.len});
+    // std.debug.print("CALL triangulatePolygonalDomain() holes={}\n", .{domain.holes.len});
     var found_delauney_triangle = false;
 
     if (domain.holes.len == 0) {
@@ -1537,7 +1556,7 @@ pub fn main() !void {
     var printer: Printer = try .init(arenaAllocator);
     defer printer.deinit();
 
-    const glyph_index = face.getCharIndex('%').?;
+    const glyph_index = face.getCharIndex('&').?;
 
     // try face.loadGlyph(glyph_index, .{});
     // const glyph = face.glyph();

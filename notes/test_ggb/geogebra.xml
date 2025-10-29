@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<geogebra format="5.0" version="5.2.903.0" app="classic" platform="d" id="2d91aff6-a498-4305-835d-9901775c21b0"  xsi:noNamespaceSchemaLocation="http://www.geogebra.org/apps/xsd/ggb.xsd" xmlns="" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" >
+<gui>
+	<window width="800" height="600" />
+	<perspectives>
+<perspective id="tmp">
+	<panes>
+		<pane location="" divider="0.25" orientation="1" />
+	</panes>
+	<views>
+		<view id="4097" visible="false" inframe="false" stylebar="true" location="1,1,1,1" size="400" window="100,100,700,550" />
+		<view id="512" toolbar="0 | 1 501 5 19 , 67 | 2 15 45 18 , 7 37 | 514 3 9 , 13 44 , 47 | 16 51 | 551 550 11 ,  20 22 21 23 , 55 56 57 , 12 | 69 | 510 511 , 512 513 | 533 531 , 534 532 , 522 523 , 537 536 , 535 , 538 | 521 520 | 36 , 38 49 560 | 571 30 29 570 31 33 | 17 | 540 40 41 42 , 27 28 35 , 6 , 502" visible="false" inframe="false" stylebar="false" location="1,1,1" size="500" window="100,100,600,400" />
+		<view id="4" toolbar="0 || 2020 , 2021 , 2022 , 66 || 2001 , 2003 , 2002 , 2004 , 2005 || 2040 , 2041 , 2042 , 2044 , 2043" visible="false" inframe="false" stylebar="false" location="1,1" size="300" window="100,100,600,400" />
+		<view id="8" toolbar="1001 | 1002 | 1003  || 1005 | 1004 || 1006 | 1007 | 1010 || 1008 1009 || 66 68 || 6" visible="false" inframe="false" stylebar="false" location="1,3" size="300" window="100,100,600,400" />
+		<view id="1" visible="true" inframe="false" stylebar="false" location="1" size="579" window="100,100,600,400" />
+		<view id="2" visible="true" inframe="false" stylebar="false" location="3" size="200" tab="ALGEBRA" window="100,100,600,400" />
+		<view id="16" visible="false" inframe="false" stylebar="false" location="1" size="150" window="50,50,500,500" />
+		<view id="32" visible="false" inframe="false" stylebar="true" location="1" size="150" window="50,50,500,500" />
+		<view id="64" visible="false" inframe="false" stylebar="false" location="1" size="150" window="50,50,500,500" />
+		<view id="70" visible="false" inframe="false" stylebar="true" location="1" size="150" window="50,50,500,500" />
+	</views>
+	<toolbar show="true" items="0 39 73 62 | 1 501 67 , 5 19 , 72 75 76 | 2 15 45 , 18 65 , 7 37 | 4 3 8 9 , 13 44 , 58 , 47 | 16 51 64 , 70 | 10 34 53 11 , 24  20 22 , 21 23 | 55 56 57 , 12 | 36 46 , 38 49  50 , 71  14  68 | 30 29 54 32 31 33 | 25 17 26 60 52 61 | 40 41 42 , 27 28 35 , 6" position="1" help="false" />
+	<input show="true" cmd="true" top="algebra" />
+	<dockBar show="true" east="true" />
+</perspective>
+	</perspectives>
+	<labelingStyle  val="0"/>
+	<font  size="16"/>
+</gui>
+<euclidianView>
+	<viewNumber viewNo="1"/>
+	<size  width="579" height="460"/>
+	<coordSystem xZero="39.59896737525878" yZero="404.90980668970286" scale="0.12148628329834682" yscale="0.12148628329834683"/>
+	<evSettings axes="true" grid="true" gridIsBold="false" pointCapturing="3" rightAngleStyle="1" checkboxSize="26" gridType="3"/>
+	<bgColor r="255" g="255" b="255"/>
+	<axesColor r="28" g="28" b="31"/>
+	<gridColor r="180" g="179" b="186"/>
+	<lineStyle axes="1" grid="0"/>
+	<axis id="0" show="true" label="" unitLabel="" tickStyle="1" showNumbers="true"/>
+	<axis id="1" show="true" label="" unitLabel="" tickStyle="1" showNumbers="true"/>
+</euclidianView>
+<algebraView>
+	<mode val="3"/>
+</algebraView>
+<kernel>
+	<continuous val="false"/>
+	<usePathAndRegionParameters val="true"/>
+	<decimals val="2"/>
+	<angleUnit val="degree"/>
+	<algebraStyle val="0" spreadsheet="0"/>
+	<coordStyle val="0"/>
+</kernel>
+<tableview min="0.0" max="0.0" step="0.0"/>
+<scripting blocked="false" disabled="false"/>
+<construction title="" author="" date="">
+<expression label="domain0outer" exp="{(1111, 0), (452, 222), (452, 222), (223, 783), (223, 783), (223, 834), (223, 834), (371, 1247), (371, 1247), (729, 1476), (729, 1476), (729, 1525), (729, 1525), (371, 1754), (371, 1754), (223, 2169), (223, 2169), (223, 2221), (223, 2221), (452, 2783), (452, 2783), (1111, 3008), (1111, 3008), (1659, 3008), (1659, 3008), (1659, 2692), (1659, 2692), (1136, 2692), (1136, 2692), (727, 2561), (727, 2561), (566, 2203), (566, 2203), (566, 2176), (566, 2176), (716, 1798), (716, 1798), (1123, 1660), (1123, 1660), (1711, 1660), (1711, 1660), (1711, 2112), (1711, 2112), (2071, 2112), (2071, 2112), (2071, 1660), (2071, 1660), (2487, 1660), (2487, 1660), (2487, 1344), (2487, 1344), (2071, 1344), (2071, 1344), (2071, 0), (2071, 0), (1111, 0)}"/>
+<element type="list" label="domain0outer">
+	<show object="false" label="true"/>
+	<objColor r="0" g="100" b="0" alpha="0.0"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+	<animation step="0.1" speed="1" type="0" playing="false"/>
+	<lineStyle thickness="5" type="0" typeHidden="1"/>
+	<pointSize val="5"/>
+	<pointStyle val="0"/>
+	<angleStyle val="0"/>
+</element>
+<expression label="domain0hole0" exp="{(1136, 316), (1711, 316), (1711, 316), (1711, 1344), (1711, 1344), (1123, 1344), (1123, 1344), (716, 1203), (716, 1203), (566, 830), (566, 830), (566, 804), (566, 804), (727, 445), (727, 445), (1136, 316)}"/>
+<element type="list" label="domain0hole0">
+	<show object="false" label="true"/>
+	<objColor r="0" g="100" b="0" alpha="0.0"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+	<animation step="0.1" speed="1" type="0" playing="false"/>
+	<lineStyle thickness="5" type="0" typeHidden="1"/>
+	<pointSize val="5"/>
+	<pointStyle val="0"/>
+	<angleStyle val="0"/>
+</element>
+<expression label="tri" exp="{Polygon[{(1123, 1713), (1123, 2306), (1432, 2289)}], Polygon[{(1432, 1371), (1432, 695), (1123, 708)}], Polygon[{(1732, 1266), (1432, 1371), (1432, 1679)}], Polygon[{(868, 1821), (1123, 1713), (1123, 1405)}], Polygon[{(1432, 2289), (1432, 1679), (1123, 1713)}], Polygon[{(1432, 1371), (1123, 708), (1123, 1405)}], Polygon[{(1123, 1713), (1432, 1679), (1123, 1405)}], Polygon[{(1432, 1371), (1123, 1405), (1432, 1679)}], Polygon[{(894, 2212), (798, 2016), (555, 2326)}], Polygon[{(868, 1821), (1123, 1405), (634, 1591)}], Polygon[{(463, 1990), (463, 2016), (798, 2016)}], Polygon[{(555, 2326), (798, 2016), (463, 2016)}], Polygon[{(868, 1821), (634, 1591), (463, 1990)}], Polygon[{(798, 2016), (868, 1821), (463, 1990)}], Polygon[{(797, 2524), (1123, 2614), (1123, 2306)}], Polygon[{(1674, 2152), (1432, 2289), (1915, 2366)}], Polygon[{(1432, 2880), (1432, 2605), (1123, 2614)}], Polygon[{(1915, 2366), (1432, 2289), (1432, 2605)}], Polygon[{(1123, 2306), (1123, 2614), (1432, 2605)}], Polygon[{(1432, 2289), (1123, 2306), (1432, 2605)}], Polygon[{(1123, 2880), (1432, 2880), (1123, 2614)}], Polygon[{(1767, 1862), (1767, 1913), (2093, 1862)}], Polygon[{(1674, 2152), (1915, 2366), (2093, 1939)}], Polygon[{(2093, 1862), (1767, 1913), (2093, 1939)}], Polygon[{(1674, 2152), (2093, 1939), (1767, 1913)}], Polygon[{(894, 2212), (555, 2326), (797, 2524)}], Polygon[{(1123, 2306), (894, 2212), (797, 2524)}], Polygon[{(1722, 806), (1827, 1042), (1961, 573)}], Polygon[{(1827, 1042), (1732, 1266), (1974, 1483)}], Polygon[{(1432, 1679), (1974, 1483), (1732, 1266)}], Polygon[{(2161, 1063), (2161, 1037), (1827, 1042)}], Polygon[{(1961, 573), (1827, 1042), (2161, 1037)}], Polygon[{(1974, 1483), (2161, 1063), (1827, 1042)}], Polygon[{(1432, 399), (1432, 128), (1123, 128)}], Polygon[{(834, 875), (1123, 708), (716, 554)}], Polygon[{(1123, 128), (1123, 399), (1432, 399)}], Polygon[{(1123, 708), (1432, 695), (1123, 399)}], Polygon[{(1722, 806), (1961, 573), (1432, 399)}], Polygon[{(1123, 399), (1432, 695), (1432, 399)}], Polygon[{(1722, 806), (1432, 399), (1432, 695)}], Polygon[{(716, 554), (1123, 708), (1123, 399)}], Polygon[{(729, 1256), (729, 1205), (403, 1256)}], Polygon[{(834, 875), (716, 554), (480, 832)}], Polygon[{(403, 1154), (403, 1256), (729, 1205)}], Polygon[{(834, 875), (480, 832), (729, 1205)}], Polygon[{(403, 1154), (729, 1205), (480, 832)}]}" />
+<element type="list" label="tri">
+	<show object="false" label="true"/>
+	<objColor r="0" g="100" b="0" alpha="0.10000000149011612"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+	<lineStyle thickness="5" type="0" typeHidden="1"/>
+	<pointSize val="5"/>
+	<pointStyle val="0"/>
+	<angleStyle val="0"/>
+</element>
+<command name="Polygon">
+	<input a0="domain0outer"/>
+	<output a0="poly1"/>
+</command>
+<element type="polygon" label="poly1">
+	<lineStyle thickness="5" type="0" typeHidden="1" opacity="178"/>
+	<show object="true" label="false"/>
+	<objColor r="153" g="51" b="0" alpha="0.10000000149011612"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+</element>
+<expression label="subdomain0" exp="{(2071, 1344), (2071, 0), (2071, 0), (1111, 0), (1111, 0), (452, 222), (452, 222), (223, 783), (223, 783), (223, 834), (223, 834), (371, 1247), (371, 1247), (729, 1476), (729, 1476), (729, 1525), (729, 1525), (371, 1754), (371, 1754), (223, 2169), (223, 2169), (223, 2221), (223, 2221), (452, 2783), (452, 2783), (1111, 3008), (1111, 3008), (1659, 3008), (1659, 3008), (1659, 2692), (1659, 2692), (1136, 2692), (1136, 2692), (727, 2561), (727, 2561), (566, 2203), (566, 2203), (566, 2176), (566, 2176), (716, 1798), (716, 1798), (1123, 1660), (1123, 1660), (1711, 1660), (1711, 1660), (1711, 2112), (1711, 2112), (2071, 2112), (2071, 2112), (2071, 1660), (2071, 1660), (2487, 1660), (2487, 1660), (2487, 1344), (2487, 1344), (2071, 1344), (2071, 1344), (1711, 1344), (1711, 1344), (1123, 1344), (1123, 1344), (716, 1203), (716, 1203), (566, 830), (566, 830), (566, 804), (566, 804), (727, 445), (727, 445), (1136, 316), (1136, 316), (1711, 316), (1711, 316), (2071, 1344)}"/>
+<element type="list" label="subdomain0">
+	<show object="false" label="true"/>
+	<objColor r="0" g="100" b="0" alpha="0.0"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+	<animation step="0.1" speed="1" type="0" playing="false"/>
+	<lineStyle thickness="5" type="0" typeHidden="1"/>
+	<pointSize val="5"/>
+	<pointStyle val="0"/>
+	<angleStyle val="0"/>
+</element>
+<command name="Polygon">
+	<input a0="subdomain0"/>
+	<output a0="poly2"/>
+</command>
+<element type="polygon" label="poly2">
+	<lineStyle thickness="5" type="0" typeHidden="1" opacity="178"/>
+	<show object="false" label="false"/>
+	<objColor r="153" g="51" b="0" alpha="0.10000000149011612"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+</element>
+<command name="Polygon">
+	<input a0="{(729, 1525), (371, 1754), (371, 1754), (223, 2169), (223, 2169), (223, 2221), (223, 2221), (452, 2783), (452, 2783), (1111, 3008), (1111, 3008), (1659, 3008), (1659, 3008), (1659, 2692), (1659, 2692), (1136, 2692), (1136, 2692), (727, 2561), (727, 2561), (566, 2203), (566, 2203), (566, 2176), (566, 2176), (716, 1798), (716, 1798), (1123, 1660), (1123, 1660), (1711, 1660), (1711, 1660), (1711, 2112), (1711, 2112), (2071, 2112), (2071, 2112), (2071, 1660), (2071, 1660), (2487, 1660), (2487, 1660), (2487, 1344), (2487, 1344), (2071, 1344), (2071, 1344), (1711, 1344), (1711, 1344), (1123, 1344), (1123, 1344), (729, 1525)}"/>
+	<output a0="poly3"/>
+</command>
+<element type="polygon" label="poly3">
+	<lineStyle thickness="5" type="0" typeHidden="1" opacity="178"/>
+	<show object="true" label="false"/>
+	<objColor r="153" g="51" b="0" alpha="0.10000000149011612"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+</element>
+<command name="Polygon">
+	<input a0="{(566, 804), (452, 222), (452, 222), (223, 783), (223, 783), (566, 804)}"/>
+	<output a0="poly4"/>
+</command>
+<element type="polygon" label="poly4">
+	<lineStyle thickness="5" type="0" typeHidden="1" opacity="178"/>
+	<show object="true" label="false"/>
+	<objColor r="153" g="51" b="0" alpha="0.10000000149011612"/>
+	<layer val="0"/>
+	<labelMode val="0"/>
+</element>
+</construction>
+</geogebra>
