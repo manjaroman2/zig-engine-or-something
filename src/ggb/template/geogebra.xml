@@ -53,9 +53,5 @@
 <tableview min="0.0" max="0.0" step="0.0"/>
 <scripting blocked="false" disabled="false"/>
 <construction title="" author="" date="">
-<command name="Polygon">
-	<input a0="{(566, 804), (452, 222), (452, 222), (223, 783), (223, 783), (566, 804)}"/>
-	<output a0="poly4"/>
-</command>
 </construction>
 </geogebra>

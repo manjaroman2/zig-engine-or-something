@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<geogebra format="5.0" version="5.2.903.0" app="classic" platform="d" id="2d91aff6-a498-4305-835d-9901775c21b0"  xsi:noNamespaceSchemaLocation="http://www.geogebra.org/apps/xsd/ggb.xsd" xmlns="" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" >
+<geogebra format="5.0" version="5.2.903.0" app="classic" platform="d" id="4b51a96b-604f-496c-9c87-bc96a86bd875"  xsi:noNamespaceSchemaLocation="http://www.geogebra.org/apps/xsd/ggb.xsd" xmlns="" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" >
 <gui>
 	<window width="800" height="600" />
 	<perspectives>
@@ -30,7 +30,7 @@
 <euclidianView>
 	<viewNumber viewNo="1"/>
 	<size  width="579" height="460"/>
-	<coordSystem xZero="39.59896737525878" yZero="404.90980668970286" scale="0.12148628329834682" yscale="0.12148628329834683"/>
+	<coordSystem xZero="215.00000000000003" yZero="315.00000000000006" scale="50.00000000000001" yscale="50.00000000000001"/>
 	<evSettings axes="true" grid="true" gridIsBold="false" pointCapturing="3" rightAngleStyle="1" checkboxSize="26" gridType="3"/>
 	<bgColor r="255" g="255" b="255"/>
 	<axesColor r="28" g="28" b="31"/>
@@ -53,9 +53,5 @@
 <tableview min="0.0" max="0.0" step="0.0"/>
 <scripting blocked="false" disabled="false"/>
 <construction title="" author="" date="">
-<command name="Polygon">
-	<input a0="{(566, 804), (452, 222), (452, 222), (223, 783), (223, 783), (566, 804)}"/>
-	<output a0="poly4"/>
-</command>
 </construction>
 </geogebra>

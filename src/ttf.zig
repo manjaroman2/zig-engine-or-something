@@ -1,4 +1,5 @@
 const std = @import("std");
+const ggb = @import("ggb/ggb.zig");
 const graphics = @import("graphics.zig");
 const math = @import("math.zig");
 const ZERO_U64 = math.ZERO_U64;
@@ -42,16 +43,18 @@ fn glyph_write_bmp(glyph: freetype.GlyphSlot, outfile: []const u8) !void {
 const Printer = struct {
     allocator: std.mem.Allocator,
     allocated: std.ArrayList(PrinterElement),
+    ggb_file: ggb.GGBFile,
 
     const PrinterElement = struct {
         allocatedString: []const u8,
         children: usize,
     };
 
-    fn init(allocator: std.mem.Allocator) !Printer {
+    fn init(allocator: std.mem.Allocator, ggb_file_name: []const u8) !Printer {
         return .{
             .allocated = try std.ArrayList(PrinterElement).initCapacity(allocator, 1),
             .allocator = allocator,
+            .ggb_file = try .init(allocator, ggb_file_name),
         };
     }
 
@@ -101,23 +104,25 @@ const Printer = struct {
         return result;
     }
 
-    fn ggb_contour(self: *Printer, c: *const Contour, name: []const u8) ![]const u8 {
+    fn ggb_contour(self: *Printer, c: *const Contour, name: []const u8) !void {
         const contour_string = try self.contour(c);
-        self.free_last();
         const source =
             \\<command name="Polygon">
             \\<input a0="{{{s}}}"/>
             \\<output a0="{s}"/>
             \\</command>
-            \\<element type="polygon" label="poly3">
+            \\<element type="polygon" label="{s}">
             \\<lineStyle thickness="5" type="0" typeHidden="1" opacity="178"/>
-            \\<show object="true" label="false"/>
+            \\<show object="false" label="false"/>
             \\<objColor r="153" g="51" b="0" alpha="0.10000000149011612"/>
             \\<layer val="0"/>
             \\<labelMode val="0"/>
             \\</element>
         ;
-        return try self.allocPrintWithChildren(0, source, .{ contour_string, name });
+        const string = try self.allocPrintWithChildren(0, source, .{ contour_string, name, name });
+        try self.ggb_file.add(string);
+        self.free_last();
+        self.free_last();
     }
 
     fn domain(self: *Printer, d: *const PolygonalDomain) ![]const u8 {
@@ -135,6 +140,22 @@ const Printer = struct {
         const outer = try self.contour(&d.outer);
         return try self.allocPrintWithChildren(d.holes.len + 1, "outer:\n{s}\n{s}\n", .{ outer, holesJoined });
     }
+
+    // fn ggb_domain(self: *Printer, d: *const PolygonalDomain) ![]const u8 {
+    //     var holes = try self.allocator.alloc([]const u8, d.holes.len);
+    //     defer {
+    //         for (holes) |h| self.allocator.free(h);
+    //         self.allocator.free(holes);
+    //     }
+    //     for (d.holes, 0..) |hole, holeI| {
+    //         holes[holeI] = try std.fmt.allocPrint(self.allocator, "hole{}:\n{s}", .{ holeI, try self.contour(&hole) });
+    //         // holes[holeI] = try self.contour(&hole);
+    //     }
+    //     const holesJoined = try std.mem.join(self.allocator, "\n", holes);
+    //     defer self.allocator.free(holesJoined);
+    //     const outer = try self.contour(&d.outer);
+    //     return try self.allocPrintWithChildren(d.holes.len + 1, "outer:\n{s}\n{s}\n", .{ outer, holesJoined });
+    // }
 };
 
 const WindingOrder = enum {
@@ -1056,8 +1077,13 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                     {
                         const buf = try formatBitmask(allocator, recursionTreeBitmask_modified, depth + 1);
                         defer allocator.free(buf);
-                        std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
-                        printer.free_last();
+
+                        var name_buf: [1024]u8 = undefined;
+                        const name = try std.fmt.bufPrint(&name_buf, "subdomain{s}", .{buf});
+                        try printer.ggb_contour(&subDomain.outer, name);
+
+                        // std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
+                        // printer.free_last();
                     }
 
                     try triangulatePolygonalDomain(
@@ -1098,8 +1124,13 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                     {
                         const buf = try formatBitmask(allocator, recursionTreeBitmask_modified, depth + 1);
                         defer allocator.free(buf);
-                        std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
-                        printer.free_last();
+
+                        var name_buf: [1024]u8 = undefined;
+                        const name = try std.fmt.bufPrint(&name_buf, "subdomain{s}", .{buf});
+                        try printer.ggb_contour(&subDomain.outer, name);
+
+                        // std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
+                        // printer.free_last();
                     }
 
                     try triangulatePolygonalDomain(
@@ -1206,8 +1237,13 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                 {
                     const buf = try formatBitmask(allocator, recursionTreeBitmask_modified, depth + 1);
                     defer allocator.free(buf);
-                    std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
-                    printer.free_last();
+
+                    var name_buf: [1024]u8 = undefined;
+                    const name = try std.fmt.bufPrint(&name_buf, "subdomain{s}", .{buf});
+                    try printer.ggb_contour(&subDomain.outer, name);
+
+                    // std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
+                    // printer.free_last();
                 }
 
                 try triangulatePolygonalDomain(
@@ -1368,8 +1404,13 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                         {
                             const buf = try formatBitmask(allocator, recursionTreeBitmask_modified, depth + 1);
                             defer allocator.free(buf);
-                            std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
-                            printer.free_last();
+
+                            var name_buf: [1024]u8 = undefined;
+                            const name = try std.fmt.bufPrint(&name_buf, "subdomain{s}", .{buf});
+                            try printer.ggb_contour(&subDomain.outer, name);
+
+                            // std.debug.print("depth={} subdomain{s}={{\n{s}\n}}\n", .{ depth, buf, try printer.contour(&subDomain.outer) });
+                            // printer.free_last();
                         }
 
                         try triangulatePolygonalDomain(
@@ -1388,9 +1429,9 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                 if (found_delauney_triangle) break;
 
                 // @@DEBUG
-                if (!found_delauney_triangle) {
-                    return errors.BadContour;
-                }
+                // if (!found_delauney_triangle) {
+                //     return errors.BadContour;
+                // }
 
                 //
                 // Find other vertex on hole contour
@@ -1448,7 +1489,7 @@ fn triangulatePolygonalDomain(allocator: std.mem.Allocator, printer: *Printer, t
                         // Vertex is visible from starting_edge!
                         //
 
-                        return errors.BadContour;
+                        // return errors.BadContour;
                     }
                 }
 
@@ -1479,13 +1520,25 @@ pub fn triangulatePolygonalDomains(allocator: std.mem.Allocator, printer: *Print
         allocator.free(results);
     }
     for (polygonalDomains, 0..) |domain, domainIdx| {
-        std.debug.print("domain{}outer={{\n{s}\n}}\n", .{ domainIdx, try printer.contour(&domain.outer) });
-        printer.free_last();
+        {
+            var name_buf: [1024]u8 = undefined;
+            const name = try std.fmt.bufPrint(&name_buf, "domain{}outer", .{domainIdx});
+            try printer.ggb_contour(&domain.outer, name);
+        }
+
+        // std.debug.print("domain{}outer={{\n{s}\n}}\n", .{ domainIdx, try printer.contour(&domain.outer) });
+        // printer.free_last();
+
         std.debug.print("domain{}outerPoly=Polygon(domain{}outer)\n", .{ domainIdx, domainIdx });
         for (domain.holes, 0..) |hole, holeIdx| {
-            std.debug.print("domain{}hole{}={{\n{s}\n}}\n", .{ domainIdx, holeIdx, try printer.contour(&hole) });
-            printer.free_last();
-            std.debug.print("domain{}hole{}Poly=Polygon(domain{}hole{})\n", .{ domainIdx, holeIdx, domainIdx, holeIdx });
+            {
+                var name_buf: [1024]u8 = undefined;
+                const name = try std.fmt.bufPrint(&name_buf, "domain{}hole{}", .{ domainIdx, holeIdx });
+                try printer.ggb_contour(&hole, name);
+            }
+            // std.debug.print("domain{}hole{}={{\n{s}\n}}\n", .{ domainIdx, holeIdx, try printer.contour(&hole) });
+            // printer.free_last();
+            // std.debug.print("domain{}hole{}Poly=Polygon(domain{}hole{})\n", .{ domainIdx, holeIdx, domainIdx, holeIdx });
         }
 
         var triangulation = try std.ArrayList(Point).initCapacity(allocator, domain.outer.edgesCount * 3);
@@ -1515,7 +1568,8 @@ pub fn main() !void {
     defer library.deinit();
     try print_version(library);
 
-    const face = try library.createFace("assets/fonts/SpaceMono/SpaceMono-Regular.ttf", 0);
+    // const face = try library.createFace("assets/fonts/SpaceMono/SpaceMono-Regular.ttf", 0);
+    const face = try library.createFace("assets/fonts/NotoSans/NotoSansEgyptianHieroglyphs-Regular.ttf", 0);
     defer face.deinit();
 
     try face.selectCharmap(.unicode);
@@ -1553,10 +1607,11 @@ pub fn main() !void {
     defer arena.deinit();
     const arenaAllocator = arena.allocator();
 
-    var printer: Printer = try .init(arenaAllocator);
+    var printer: Printer = try .init(arenaAllocator, "out.ggb");
     defer printer.deinit();
 
-    const glyph_index = face.getCharIndex('&').?;
+    // const glyph_index = face.getCharIndex('8').?;
+    const glyph_index = face.getCharIndex(0x130D3).?;
 
     // try face.loadGlyph(glyph_index, .{});
     // const glyph = face.glyph();
@@ -1573,4 +1628,5 @@ pub fn main() !void {
     }
 
     try triangulatePolygonalDomains(allocator, &printer, polygonalDomains);
+    try printer.ggb_file.create();
 }
