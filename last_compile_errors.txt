@@ -1,0 +1,17 @@
+install
++- install testing_zig_main
+   +- compile exe testing_zig_main Debug native 1 errors
+src/ttf.zig:1370:47: error: no field or member function named 'next' in 'ttf.StartingEdgePickerNew'
+        var starting_edge = startingEdgePicker.next();
+                            ~~~~~~~~~~~~~~~~~~^~~~~
+src/ttf.zig:1087:31: note: struct declared here
+const StartingEdgePickerNew = struct {
+                              ^~~~~~
+src/ttf.zig:1097:5: note: 'next' is not a member function
+    fn next(self: *StartingEdgePicker) *ContourVertex {
+    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+referenced by:
+    triangulatePolygonalDomains: src/ttf.zig:1870:39
+    triangulateGlyph: src/ttf.zig:1918:43
+    5 reference(s) hidden; use '-freference-trace=7' to see all references
+error: 1 compilation errors
