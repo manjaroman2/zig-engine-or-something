@@ -12,14 +12,14 @@ pub fn build(b: *std.Build) void {
     const mach_freetype_mod = mach_freetype_dep.module("mach-freetype");
     const mach_harfbuzz_mod = mach_freetype_dep.module("mach-harfbuzz");
 
-    const exe_mod = b.createModule(.{
+    const exeMain_mod = b.createModule(.{
         .root_source_file = b.path("src/ttf.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    exe_mod.addImport("coolfreetype", mach_freetype_mod);
-    exe_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
+    exeMain_mod.addImport("coolfreetype", mach_freetype_mod);
+    exeMain_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
 
     // const freetype_dep = b.dependency("freetype", .{
     //     .target = target,
@@ -30,11 +30,24 @@ pub fn build(b: *std.Build) void {
     // exe_mod.addImport("freetype", freetype_dep.module("freetype"));
     // exe_mod.linkLibrary(freetype_dep.artifact("freetype"));
 
-    const exe = b.addExecutable(.{
-        .name = "testing_zig",
-        .root_module = exe_mod,
+    const exeMain = b.addExecutable(.{
+        .name = "testing_zig_main",
+        .root_module = exeMain_mod,
     });
 
+    const exeTest_mod = b.createModule(.{
+        .root_source_file = b.path("src/test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    exeTest_mod.addImport("coolfreetype", mach_freetype_mod);
+    exeTest_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
+
+    const exeTest = b.addExecutable(.{
+        .name = "testing_zig_test",
+        .root_module = exeTest_mod,
+    });
     // sdl3
     // const sdl3 = b.dependency("sdl3", .{
     //     .target = target,
@@ -64,19 +77,25 @@ pub fn build(b: *std.Build) void {
     // compile shaders
     const compile_shaders = b.step("compile-shaders", "Compile GLSL to SPIR-V");
     compileShaders(b, compile_shaders);
-    exe.step.dependOn(compile_shaders);
+    exeMain.step.dependOn(compile_shaders);
 
     // done
-    b.installArtifact(exe);
+    b.installArtifact(exeMain);
+    b.installArtifact(exeTest);
 
     // zig build run
-    const run_cmd = b.addRunArtifact(exe);
+    const run_cmd = b.addRunArtifact(exeMain);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    if (b.args) |args| run_cmd.addArgs(args);
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
+
+    // zig build runTest
+    const runTest_cmd = b.addRunArtifact(exeTest);
+    runTest_cmd.step.dependOn(b.getInstallStep());
+    if (b.args) |args| runTest_cmd.addArgs(args);
+    const runTest_step = b.step("runTest", "Run the test app");
+    runTest_step.dependOn(&runTest_cmd.step);
 }
 
 fn compileShaders(b: *std.Build, compile_shaders: *std.Build.Step) void {
