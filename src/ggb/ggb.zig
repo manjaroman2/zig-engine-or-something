@@ -28,13 +28,11 @@ const errors = error{
 };
 
 pub const GGBFile = struct {
-    filename: []const u8,
     insertions: std.ArrayList(u8),
     alloc: std.mem.Allocator,
 
-    pub fn init(alloc: std.mem.Allocator, ggb_file_name: []const u8) !GGBFile {
+    pub fn init(alloc: std.mem.Allocator) !GGBFile {
         var ret = GGBFile{
-            .filename = ggb_file_name,
             .alloc = alloc,
             .insertions = try std.ArrayList(u8).initCapacity(alloc, 1024),
         };
@@ -52,7 +50,7 @@ pub const GGBFile = struct {
         return self.insertions.items;
     }
 
-    pub fn create(self: *GGBFile) !void {
+    pub fn create(self: *GGBFile, filename: []const u8) !void {
         var cwd_buf: [1024]u8 = undefined;
         const cwd = try std.fs.cwd().realpath(".", &cwd_buf);
 
@@ -69,7 +67,7 @@ pub const GGBFile = struct {
             "zip",
             "-Tm",
             "-r",
-            "out.ggb",
+            filename,
             "geogebra.xml",
             "geogebra_defaults2d.xml",
             "geogebra_defaults3d.xml",
@@ -79,13 +77,14 @@ pub const GGBFile = struct {
 
         var child = std.process.Child.init(argv, self.alloc);
 
+        child.stdout_behavior = .Ignore;
+
         child.cwd = cwd;
         try child.spawn();
         const exit = try child.wait();
         if (exit.Exited != 0) {
             return errors.ZipFailed;
         }
-        std.debug.print("Created out.ggb\n", .{});
     }
 };
 

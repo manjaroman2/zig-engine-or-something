@@ -2,3 +2,7 @@ renderdoc
 zig-out/
 .zig-cache/
 glyph-out/
+out.ggb
+cpp_build/
+last_compile_errors.txt
+out/

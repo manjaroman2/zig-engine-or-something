@@ -4,69 +4,82 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const mach_freetype_dep = b.dependency("mach_freetype", .{
-        .target = target,
-        .optimize = optimize,
-    });
-
-    const mach_freetype_mod = mach_freetype_dep.module("mach-freetype");
-    const mach_harfbuzz_mod = mach_freetype_dep.module("mach-harfbuzz");
-
-    const exe_mod = b.createModule(.{
+    const ttf_mod = b.createModule(.{
         .root_source_file = b.path("src/ttf.zig"),
         .target = target,
         .optimize = optimize,
     });
 
-    exe_mod.addImport("coolfreetype", mach_freetype_mod);
-    exe_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
+    // mach_freetype
+    const mach_freetype_dep = b.dependency("mach_freetype", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const mach_freetype_mod = mach_freetype_dep.module("mach-freetype");
+    const mach_harfbuzz_mod = mach_freetype_dep.module("mach-harfbuzz");
+    ttf_mod.addImport("coolfreetype", mach_freetype_mod);
+    ttf_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
 
-    // const freetype_dep = b.dependency("freetype", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    //     // Optional: enable libpng support
-    //     .@"enable-libpng" = false,
-    // });
-    // exe_mod.addImport("freetype", freetype_dep.module("freetype"));
-    // exe_mod.linkLibrary(freetype_dep.artifact("freetype"));
+    // zlm
+    const zlm_dep = b.dependency("zlm", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zlm_mod = zlm_dep.module("zlm");
+    ttf_mod.addImport("zlm", zlm_mod);
+
+    // cgal
+    const cgal_mod = b.addModule("cgal", .{
+        .root_source_file = b.path("src/polygon_classfier_cgal/cgal.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+        .link_libcpp = false,
+    });
+    ttf_mod.addImport("cgal", cgal_mod);
+
+    const cmake_build = b.addSystemCommand(&[_][]const u8{
+        "cmake",
+        "-B",
+        "cpp_build",
+        "-S",
+        "src/polygon_classfier_cgal/",
+        "-DCMAKE_BUILD_TYPE=Release",
+    });
+    const make_build = b.addSystemCommand(&[_][]const u8{
+        "cmake",
+        "--build",
+        "cpp_build",
+        "--config",
+        "Release",
+    });
+    make_build.step.dependOn(&cmake_build.step);
+
+    cgal_mod.addIncludePath(b.path("."));
+    cgal_mod.addObjectFile(b.path("cpp_build/libpolygon_classifier.a"));
+
+    // Link C library first
+    // cgal_mod.linkLibC();
+
+    cgal_mod.addObjectFile(.{ .cwd_relative = "/usr/lib/libstdc++.so.6" });
+
+    cgal_mod.linkSystemLibrary("gcc_s", .{});
+
+    cgal_mod.linkSystemLibrary("gmp", .{});
+    cgal_mod.linkSystemLibrary("mpfr", .{});
 
     const exe = b.addExecutable(.{
         .name = "testing_zig",
-        .root_module = exe_mod,
+        .root_module = ttf_mod,
     });
 
-    // sdl3
-    // const sdl3 = b.dependency("sdl3", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    //     .ext_ttf = true,
-    //     .ext_image = true,
-    //     .ext_net = true,
-    // });
-    // exe_mod.addImport("sdl3", sdl3.module("sdl3"));
-    // zigimg
-    // const zigimg = b.dependency("zigimg", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    // exe_mod.addImport("zigimg", zigimg.module("zigimg"));
-
-    // harfbuzz c-link
-    // const harfbuzz = b.dependency("harfbuzz", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    //     .enable_freetype = false,
-    //     .freetype_use_system_zlib = false,
-    //     .freetype_enable_brotli = false,
-    // });
-    // exe.linkLibrary(harfbuzz.artifact("harfbuzz"));
+    exe.step.dependOn(&make_build.step);
 
     // compile shaders
-    const compile_shaders = b.step("compile-shaders", "Compile GLSL to SPIR-V");
-    compileShaders(b, compile_shaders);
-    exe.step.dependOn(compile_shaders);
+    // const compile_shaders = b.step("compile-shaders", "Compile GLSL to SPIR-V");
+    // compileShaders(b, compile_shaders);
+    // exe.step.dependOn(compile_shaders);
 
-    // done
     b.installArtifact(exe);
 
     // zig build run
