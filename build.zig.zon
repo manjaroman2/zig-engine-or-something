@@ -1,8 +1,8 @@
 .{
+    .fingerprint = 0x59a525f574d56cd8,
     .name = .testing_zig,
     .version = "0.0.0",
-    .fingerprint = 0x59a525f574d56cd8,
-    .minimum_zig_version = "0.15.1",
+    .minimum_zig_version = "0.16.0",
     .dependencies = .{
         .mach_freetype = .{
             .path = "third-party/mach-freetype",

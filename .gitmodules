@@ -1,7 +1,3 @@
-[submodule "third-party/mach-freetype"]
-	path = third-party/mach-freetype
-	url = git@github.com:manjaroman2/mach-freetype.git
-	branch = 0.15.1
 [submodule "third-party/zlm"]
 	path = third-party/zlm
 	url = git@github.com:ziglibs/zlm.git
