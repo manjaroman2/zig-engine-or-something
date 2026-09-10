@@ -1,275 +1,155 @@
 const std = @import("std");
 
-const Polygon_with_holes_2 = opaque {};
+pub const CPoint = extern struct { x: f64, y: f64 };
 
-// C API functions
-extern fn classify_contours_from_doubles(
-    x_coords: [*]const f64,
-    y_coords: [*]const f64,
-    contour_sizes: [*]const usize,
-    num_contours: usize,
-    out_size: *usize,
-) [*]*Polygon_with_holes_2;
-
-extern fn get_outer_boundary_size_simple(pwh: *const Polygon_with_holes_2) usize;
-extern fn get_outer_boundary_point_simple(pwh: *const Polygon_with_holes_2, idx: usize, x: *f64, y: *f64) void;
-extern fn get_num_holes_simple(pwh: *const Polygon_with_holes_2) usize;
-extern fn get_hole_size_simple(pwh: *const Polygon_with_holes_2, hole_idx: usize) usize;
-extern fn get_hole_point_simple(pwh: *const Polygon_with_holes_2, hole_idx: usize, point_idx: usize, x: *f64, y: *f64) void;
-extern fn free_domains_simple(domains: [*]*Polygon_with_holes_2, size: usize) void;
-
-// Triangulation C API
-const TriangulationHandle = opaque {};
-
-extern fn create_polygon_with_holes(outer_x: [*]const f64, outer_y: [*]const f64, outer_size: usize, holes_x: [*]const [*]const f64, holes_y: [*]const [*]const f64, hole_sizes: [*]const usize, num_holes: usize) ?*Polygon_with_holes_2;
-
-extern fn free_single_polygon(pwh: *Polygon_with_holes_2) void;
-
-extern fn triangulate_polygon_with_holes(pwh: *const Polygon_with_holes_2) ?*TriangulationHandle;
-extern fn get_triangulation_num_triangles(handle: *TriangulationHandle) usize;
-extern fn get_triangle_vertices(handle: *TriangulationHandle, idx: usize, x0: *f64, y0: *f64, x1: *f64, y1: *f64, x2: *f64, y2: *f64) void;
-extern fn free_triangulation(handle: *TriangulationHandle) void;
-
-// Nice Zig API
-pub const Point = [2]f64;
-
-pub const Polygon = struct {
-    points: []const Point,
+pub const ReturnData = extern struct {
+    indices: [*]Index,
+    indices_count: usize,
+    indices_per_polygon: [*]usize,
+    vertices: [*]Vertex,
+    vertices_count: usize,
+    vertices_per_polygon: [*]usize,
+    polygon_count: usize,
 };
 
-pub const PolygonWithHoles = struct {
-    outer: []Point,
-    holes: [][]Point,
+pub const Triangle = [3]i32;
+pub const Index = usize;
+pub const Vertex = struct { x: i32, y: i32 };
+pub const Mesh = struct {
+    mem: []u8,
+    vertices: []Vertex,
+    indices: []Index,
 
-    pub fn deinit(self: *PolygonWithHoles, allocator: std.mem.Allocator) void {
-        allocator.free(self.outer);
-        for (self.holes) |hole| {
-            allocator.free(hole);
-        }
-        allocator.free(self.holes);
-    }
-};
+    pub fn alloc(allocator: std.mem.Allocator, n_vertices: usize, n_indices: usize) !Mesh {
+        const index_offset = std.mem.alignForward(usize, n_vertices * @sizeOf(Vertex), @alignOf(Index));
+        const total_bytes = index_offset + n_indices * @sizeOf(Index);
 
-pub const Triangle = struct {
-    v0: Point,
-    v1: Point,
-    v2: Point,
-};
+        const mem = try allocator.alignedAlloc(u8, comptime .fromByteUnits(@max(
+            @alignOf(Index),
+            @alignOf(Vertex),
+        )), total_bytes);
 
-pub const Triangulation = struct {
-    triangles: []Triangle,
-    allocator: std.mem.Allocator,
+        const vertices: []Vertex = @as(
+            [*]Vertex,
+            @ptrCast(@alignCast(mem.ptr)),
+        )[0..n_vertices];
 
-    pub fn deinit(self: *Triangulation) void {
-        self.allocator.free(self.triangles);
-    }
-};
+        const indices: []Index = @as(
+            [*]Index,
+            @ptrCast(@alignCast(mem.ptr + index_offset)),
+        )[0..n_indices];
 
-pub fn classifyContours(allocator: std.mem.Allocator, contours: []const []const Point) ![]PolygonWithHoles {
-    if (contours.len == 0) return &[_]PolygonWithHoles{};
-
-    // Validate contours
-    for (contours, 0..) |contour, i| {
-        if (contour.len < 3) {
-            std.debug.print("Warning: Contour {} has only {} points (need at least 3)\n", .{ i, contour.len });
-            return error.InvalidContour;
-        }
-
-        // Check for NaN or infinite values
-        for (contour, 0..) |point, j| {
-            if (!std.math.isFinite(point[0]) or !std.math.isFinite(point[1])) {
-                std.debug.print("Warning: Contour {} point {} has invalid coordinates: ({d}, {d})\n", .{ i, j, point[0], point[1] });
-                return error.InvalidPoint;
-            }
-        }
-    }
-
-    // Flatten all points into separate x and y arrays
-    var total_points: usize = 0;
-    for (contours) |contour| {
-        total_points += contour.len;
-    }
-
-    var x_coords = try allocator.alloc(f64, total_points);
-    defer allocator.free(x_coords);
-
-    var y_coords = try allocator.alloc(f64, total_points);
-    defer allocator.free(y_coords);
-
-    var contour_sizes = try allocator.alloc(usize, contours.len);
-    defer allocator.free(contour_sizes);
-
-    var idx: usize = 0;
-    for (contours, 0..) |contour, i| {
-        contour_sizes[i] = contour.len;
-        for (contour) |point| {
-            x_coords[idx] = point[0];
-            y_coords[idx] = point[1];
-            idx += 1;
-        }
-    }
-
-    // Call C++ function
-    var out_size: usize = 0;
-    const domains = classify_contours_from_doubles(
-        x_coords.ptr,
-        y_coords.ptr,
-        contour_sizes.ptr,
-        contours.len,
-        &out_size,
-    );
-
-    // Check if C++ returned no results (error case)
-    if (out_size == 0) {
-        std.debug.print("CGAL returned no results or encountered an error\n", .{});
-        return &[_]PolygonWithHoles{};
-    }
-
-    // Convert results to Zig structures
-    var result = try allocator.alloc(PolygonWithHoles, out_size);
-    errdefer allocator.free(result);
-
-    for (0..out_size) |i| {
-        const pwh = domains[i];
-
-        // Get outer boundary
-        const outer_size = get_outer_boundary_size_simple(pwh);
-        var outer = try allocator.alloc(Point, outer_size);
-        errdefer allocator.free(outer);
-
-        for (0..outer_size) |j| {
-            var x: f64 = undefined;
-            var y: f64 = undefined;
-            get_outer_boundary_point_simple(pwh, j, &x, &y);
-            outer[j] = .{ x, y };
-        }
-
-        // Get holes
-        const num_holes = get_num_holes_simple(pwh);
-        var holes = try allocator.alloc([]Point, num_holes);
-        errdefer allocator.free(holes);
-
-        for (0..num_holes) |h| {
-            const hole_size = get_hole_size_simple(pwh, h);
-            var hole_points = try allocator.alloc(Point, hole_size);
-            errdefer allocator.free(hole_points);
-
-            for (0..hole_size) |p| {
-                var x: f64 = undefined;
-                var y: f64 = undefined;
-                get_hole_point_simple(pwh, h, p, &x, &y);
-                hole_points[p] = .{ x, y };
-            }
-
-            holes[h] = hole_points;
-        }
-
-        result[i] = PolygonWithHoles{
-            .outer = outer,
-            .holes = holes,
+        return .{
+            .mem = mem,
+            .vertices = vertices,
+            .indices = indices,
         };
     }
 
-    // Free C++ memory
-    free_domains_simple(domains, out_size);
-
-    return result;
-}
-
-pub fn freePolygons(allocator: std.mem.Allocator, polygons: []PolygonWithHoles) void {
-    for (polygons) |*polygon| {
-        polygon.deinit(allocator);
+    pub fn free(self: *const Mesh, allocator: std.mem.Allocator) void {
+        defer allocator.free(self.mem);
     }
-    allocator.free(polygons);
-}
+};
 
-// Triangulation API - directly construct polygon from outer + holes
-pub fn triangulatePolygon(allocator: std.mem.Allocator, polygon: *const PolygonWithHoles) !Triangulation {
-    // Prepare outer boundary
-    var outer_x = try allocator.alloc(f64, polygon.outer.len);
-    defer allocator.free(outer_x);
-    var outer_y = try allocator.alloc(f64, polygon.outer.len);
-    defer allocator.free(outer_y);
+const Context = opaque {};
 
-    for (polygon.outer, 0..) |point, i| {
-        outer_x[i] = point[0];
-        outer_y[i] = point[1];
-    }
+extern fn context_create(
+    contour_points: [*]const CPoint,
+    contour_lengths: [*]const usize,
+    contour_count: usize,
+) ?*Context;
+extern fn context_destroy(ctx: *Context) void;
 
-    // Prepare holes
-    var holes_x = try allocator.alloc([*]const f64, polygon.holes.len);
-    defer allocator.free(holes_x);
-    var holes_y = try allocator.alloc([*]const f64, polygon.holes.len);
-    defer allocator.free(holes_y);
-    var hole_sizes = try allocator.alloc(usize, polygon.holes.len);
-    defer allocator.free(hole_sizes);
+extern fn triangulate_polygons(ctx: *Context, out: *ReturnData, max_indices: usize, max_vertices: usize, max_polygons: usize) void;
 
-    var hole_x_arrays = try allocator.alloc([]f64, polygon.holes.len);
-    defer {
-        for (hole_x_arrays) |arr| allocator.free(arr);
-        allocator.free(hole_x_arrays);
-    }
-    var hole_y_arrays = try allocator.alloc([]f64, polygon.holes.len);
-    defer {
-        for (hole_y_arrays) |arr| allocator.free(arr);
-        allocator.free(hole_y_arrays);
+pub fn triangulate(alloc: std.mem.Allocator, contours: []const []const CPoint) ![]Mesh {
+    var total: usize = 0;
+    for (contours) |c| total += c.len;
+
+    const flat = try alloc.alloc(CPoint, total);
+    defer alloc.free(flat);
+    const lengths = try alloc.alloc(usize, contours.len);
+    defer alloc.free(lengths);
+
+    var off: usize = 0;
+    for (contours, 0..) |c, i| {
+        lengths[i] = c.len;
+        @memcpy(flat[off .. off + c.len], c);
+        off += c.len;
     }
 
-    for (polygon.holes, 0..) |hole, i| {
-        hole_sizes[i] = hole.len;
+    const ctx = context_create(flat.ptr, lengths.ptr, contours.len) orelse return error.OutOfMemoryError;
 
-        var hx = try allocator.alloc(f64, hole.len);
-        var hy = try allocator.alloc(f64, hole.len);
+    var max_indices: usize = 6;
+    var max_vertices: usize = 3;
+    var max_polygons: usize = 1;
+    var indices = try alloc.alloc(Index, max_indices);
+    var vertices = try alloc.alloc(Vertex, max_vertices);
+    var indices_per_polygon = try alloc.alloc(usize, max_polygons);
+    var vertices_per_polygon = try alloc.alloc(usize, max_polygons);
+    @memset(indices_per_polygon, 0);
+    @memset(vertices_per_polygon, 0);
 
-        for (hole, 0..) |point, j| {
-            hx[j] = point[0];
-            hy[j] = point[1];
+    var out: ReturnData = .{
+        .indices_count = 0,
+        .indices = indices.ptr,
+        .indices_per_polygon = indices_per_polygon.ptr,
+
+        .vertices_count = 0,
+        .vertices = vertices.ptr,
+        .vertices_per_polygon = vertices_per_polygon.ptr,
+
+        .polygon_count = 0,
+    };
+
+    triangulate_polygons(ctx, &out, max_indices, max_vertices, max_polygons);
+
+    while (out.indices_count > max_indices or out.vertices_count > max_vertices or out.polygon_count > max_polygons) {
+        if (out.indices_count > max_indices) {
+            alloc.free(indices);
+            max_indices = out.indices_count;
+            indices = try alloc.alloc(Index, max_indices);
+            out.indices = indices.ptr;
         }
-
-        holes_x[i] = hx.ptr;
-        holes_y[i] = hy.ptr;
-        hole_x_arrays[i] = hx;
-        hole_y_arrays[i] = hy;
+        if (out.vertices_count > max_vertices) {
+            alloc.free(vertices);
+            max_vertices = out.vertices_count;
+            vertices = try alloc.alloc(Vertex, max_vertices);
+            out.vertices = vertices.ptr;
+        }
+        if (out.polygon_count > max_polygons) {
+            alloc.free(indices_per_polygon);
+            alloc.free(vertices_per_polygon);
+            max_polygons = out.polygon_count;
+            indices_per_polygon = try alloc.alloc(usize, max_polygons);
+            vertices_per_polygon = try alloc.alloc(usize, max_polygons);
+            out.indices_per_polygon = indices_per_polygon.ptr;
+            out.vertices_per_polygon = vertices_per_polygon.ptr;
+            @memset(indices_per_polygon, 0);
+            @memset(vertices_per_polygon, 0);
+        }
+        triangulate_polygons(ctx, &out, max_indices, max_vertices, max_polygons);
     }
 
-    // Create C++ polygon with holes
-    const pwh = create_polygon_with_holes(outer_x.ptr, outer_y.ptr, polygon.outer.len, holes_x.ptr, holes_y.ptr, hole_sizes.ptr, polygon.holes.len) orelse {
-        return error.FailedToCreatePolygon;
-    };
-    defer free_single_polygon(pwh);
+    std.debug.print("b\n", .{});
+    defer alloc.free(indices);
+    defer alloc.free(vertices);
+    defer alloc.free(indices_per_polygon);
+    defer alloc.free(vertices_per_polygon);
 
-    // Triangulate
-    const handle = triangulate_polygon_with_holes(pwh) orelse {
-        std.debug.print("Failed to triangulate polygon\n", .{});
-        return error.TriangulationFailed;
-    };
-    defer free_triangulation(handle);
+    const polygons = try alloc.alloc(Mesh, out.polygon_count);
+    var index_offs: usize = 0;
+    var vertex_offs: usize = 0;
+    for (0..out.polygon_count) |pi| {
+        const polygon_index_count = indices_per_polygon[pi];
+        const polygon_vertex_count = vertices_per_polygon[pi];
+        const mesh = try Mesh.alloc(alloc, polygon_vertex_count, polygon_index_count);
+        polygons[pi] = mesh;
 
-    const num_triangles = get_triangulation_num_triangles(handle);
-    // std.debug.print("Got {} triangles\n", .{num_triangles});
-
-    var triangles = try allocator.alloc(Triangle, num_triangles);
-    errdefer allocator.free(triangles);
-
-    for (0..num_triangles) |i| {
-        var x0: f64 = undefined;
-        var y0: f64 = undefined;
-        var x1: f64 = undefined;
-        var y1: f64 = undefined;
-        var x2: f64 = undefined;
-        var y2: f64 = undefined;
-
-        get_triangle_vertices(handle, i, &x0, &y0, &x1, &y1, &x2, &y2);
-
-        triangles[i] = Triangle{
-            .v0 = .{ x0, y0 },
-            .v1 = .{ x1, y1 },
-            .v2 = .{ x2, y2 },
-        };
+        @memcpy(mesh.indices, indices[index_offs..index_offs+polygon_index_count]);
+        @memcpy(mesh.vertices, vertices[vertex_offs..vertex_offs+polygon_vertex_count]);
+        index_offs += polygon_index_count;
+        vertex_offs += polygon_vertex_count;
     }
-
-    return Triangulation{
-        .triangles = triangles,
-        .allocator = allocator,
-    };
+    return polygons;
 }

@@ -50,18 +50,15 @@ pub const GGBFile = struct {
         return self.insertions.items;
     }
 
-    pub fn create(self: *GGBFile, filename: []const u8) !void {
-        var cwd_buf: [1024]u8 = undefined;
-        const cwd = try std.fs.cwd().realpath(".", &cwd_buf);
-
+    pub fn create(self: *GGBFile, io: std.Io, filename: []const u8) !void {
         const custom_ggb_xml = try self.build_template();
         defer self.alloc.free(custom_ggb_xml);
 
-        try writeFile("geogebra.xml", custom_ggb_xml);
-        try writeFile("geogebra_defaults2d.xml", ggb_defaults2d_xml);
-        try writeFile("geogebra_defaults3d.xml", ggb_defaults3d_xml);
-        try writeFile("geogebra_javascript.js", ggb_javascript_xml);
-        try writeFile("geogebra_thumbnail.png", ggb_thumbnail_png);
+        try writeFile(io, "geogebra.xml", custom_ggb_xml);
+        try writeFile(io, "geogebra_defaults2d.xml", ggb_defaults2d_xml);
+        try writeFile(io, "geogebra_defaults3d.xml", ggb_defaults3d_xml);
+        try writeFile(io, "geogebra_javascript.js", ggb_javascript_xml);
+        try writeFile(io, "geogebra_thumbnail.png", ggb_thumbnail_png);
 
         const argv = &[_][]const u8{
             "zip",
@@ -75,21 +72,16 @@ pub const GGBFile = struct {
             "geogebra_thumbnail.png",
         };
 
-        var child = std.process.Child.init(argv, self.alloc);
-
-        child.stdout_behavior = .Ignore;
-
-        child.cwd = cwd;
-        try child.spawn();
-        const exit = try child.wait();
-        if (exit.Exited != 0) {
+        var child = try std.process.spawn(io, .{ .argv = argv, .stdout = .ignore, .cwd = .{ .dir = std.Io.Dir.cwd() }});
+        const exit = try child.wait(io);
+        if (exit.exited != 0) {
             return errors.ZipFailed;
         }
     }
 };
 
-fn writeFile(path: []const u8, data: []const u8) !void {
-    const file = try std.fs.cwd().createFile(path, .{ .truncate = true });
-    defer file.close();
-    try file.writeAll(data);
+fn writeFile(io: std.Io, path: []const u8, data: []const u8) !void {
+    const file = try std.Io.Dir.cwd().createFile(io, path, .{ .truncate = true });
+    defer file.close(io);
+    try file.writeStreamingAll(io, data);
 }

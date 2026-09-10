@@ -4,13 +4,11 @@
     .version = "0.0.0",
     .minimum_zig_version = "0.16.0",
     .dependencies = .{
-        .mach_freetype = .{
-            .path = "third-party/mach-freetype",
-            // .url = "git+https://github.com/hexops/mach-freetype.git#359e8721d4b988d6297534164e4976a71c46ec43",
-            // .hash = "mach_freetype-0.0.0-AAAAALwUAgCt_Mzj28Tk-oZQ_a7BEKZ29rihRi7W70Io",
-        },
         .zlm = .{
             .path = "third-party/zlm",
+        },
+        .freetype = .{
+            .path = "third-party/freetype",
         },
     },
     .paths = .{

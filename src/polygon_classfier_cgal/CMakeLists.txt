@@ -14,12 +14,5 @@ add_library(polygon_classifier STATIC
 )
 
 target_link_libraries(polygon_classifier CGAL::CGAL)
-
 target_include_directories(polygon_classifier PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-
 target_compile_options(polygon_classifier PRIVATE -Wall -Wextra)
-# add_executable(polygon_set main.cpp)
-
-# target_link_libraries(polygon_set polygon_classifier CGAL::CGAL)
-
-# target_compile_options(polygon_set PRIVATE -Wall -Wextra)

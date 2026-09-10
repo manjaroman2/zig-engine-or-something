@@ -7,8 +7,10 @@ const Point = zlm_i64.Vec2;
 const point_new = zlm_i64.vec2;
 const Allocator = std.mem.Allocator;
 
-const freetype = @import("coolfreetype");
-const harfbuzz = @import("coolharfbuzz");
+const c = @cImport({
+    @cInclude("ft2build.h");
+    @cInclude("freetype/freetype.h");
+});
 
 const GGBPrinter = struct {
     alloc: Allocator,
@@ -99,11 +101,11 @@ pub const Contour = struct {
     nodes: []Node = undefined,
     segments: std.ArrayList(Segment) = undefined,
 
-    pub fn toGGALPointList(self: *const Contour, alloc: Allocator) ![]cgal.Point {
-        var ret = try alloc.alloc(cgal.Point, self.nodes.len);
+    pub fn toGGALPointList(self: *const Contour, alloc: Allocator) ![]cgal.CPoint {
+        var ret = try alloc.alloc(cgal.CPoint, self.nodes.len);
         for (self.nodes, 0..) |node, i| {
-            ret[i][0] = @floatFromInt(node.p.x);
-            ret[i][1] = @floatFromInt(node.p.y);
+            ret[i].x = @floatFromInt(node.p.x);
+            ret[i].y = @floatFromInt(node.p.y);
         }
         return ret;
     }
@@ -139,7 +141,7 @@ pub const Contour = struct {
     }
 
     // Constructs bezier curves from outline data.
-    pub fn parseOutlineBezier(alloc: Allocator, outline: freetype.Outline, printer: *GGBPrinter) ![]Contour {
+    pub fn parseOutlineBezier(alloc: Allocator, outline: c.FT_Outline, printer: *GGBPrinter) ![]Contour {
         //  So, imagine a tree
         //  ON=FT_CURVE_TAG_ON, CO=FT_CURVE_TAG_CONIC, CU=FT_CURVE_TAG_CUBIC
         //  tree_layer
@@ -154,15 +156,15 @@ pub const Contour = struct {
         //  3           ├─ON(2Conic)    CO(🗲) CU(🗲)                        ┌─────────┼──────────┐
         //              │                                                   ON(Cubic)  CO(🗲)    CU(🗲)
         //              └────────────────────────────────────────────────────┘
-        var contours = try alloc.alloc(Contour, outline.numContours());
+        var contours = try alloc.alloc(Contour, outline.n_contours);
         var contour_offset: usize = 0;
         var arena = std.heap.ArenaAllocator.init(alloc);
         const arenaAllocator = arena.allocator();
         defer arena.deinit();
-        for (outline.contours()[0..outline.numContours()], 0..) |contour_end_index, contourIdx| {
+        for (outline.contours[0..outline.n_contours], 0..) |contour_end_index, contourIdx| {
             const contour_length = @as(usize, @intCast(contour_end_index)) - contour_offset + 1;
-            const tag_slice = outline.tags()[contour_offset .. contour_offset + contour_length];
-            const point_slice = outline.points()[contour_offset .. contour_offset + contour_length];
+            const tag_slice = outline.tags[contour_offset .. contour_offset + contour_length];
+            const point_slice = outline.points[contour_offset .. contour_offset + contour_length];
 
             contour_offset += contour_length;
 
@@ -181,13 +183,13 @@ pub const Contour = struct {
             // in that case, use the last point of the contour as the contour's starting point.
             // If the last point is a conic ‘off’ point itself, start the contour with the virtual ‘on’ point
             // between the last and first point of the contour.
-            if (tag_slice[0] & 0x03 == freetype.c.FT_CURVE_TAG_CONIC) {
+            if (tag_slice[0] & 0x03 == c.FT_CURVE_TAG_CONIC) {
                 switch (tag_slice[contour_length - 1] & 0x03) {
-                    freetype.c.FT_CURVE_TAG_ON => {
+                    c.FT_CURVE_TAG_ON => {
                         tree_layer = 1;
-                        last = freetype.c.FT_CURVE_TAG_CONIC;
+                        last = c.FT_CURVE_TAG_CONIC;
                     },
-                    freetype.c.FT_CURVE_TAG_CONIC => {
+                    c.FT_CURVE_TAG_CONIC => {
                         try points.append(arenaAllocator, PointInterpolate(point_new(
                             @intCast(point_slice[0].x),
                             @intCast(point_slice[0].y),
@@ -197,7 +199,7 @@ pub const Contour = struct {
                         )));
                         // ));
                         // insert extra ON tag
-                        try tags.append(arenaAllocator, freetype.c.FT_CURVE_TAG_ON);
+                        try tags.append(arenaAllocator, c.FT_CURVE_TAG_ON);
                     },
                     else => {
                         return errors.BadTag;
@@ -224,7 +226,7 @@ pub const Contour = struct {
                 const point = points.items[i];
                 // std.debug.print("tree_layer={d}\n", .{tree_layer});
                 switch (tag & 0x03) { // first two bits
-                    freetype.c.FT_CURVE_TAG_ON => {
+                    c.FT_CURVE_TAG_ON => {
                         // std.debug.print("{} ON\n", .{tree_layer});
                         switch (tree_layer) {
                             0 => {},
@@ -236,7 +238,7 @@ pub const Contour = struct {
                                 tree_layer = 0;
                             },
                             2 => {
-                                if (last == freetype.c.FT_CURVE_TAG_CONIC) {
+                                if (last == c.FT_CURVE_TAG_CONIC) {
                                     try segments.append(alloc, Segment{ .conic = ConicBezier{
                                         .start = points.items[i - 2],
                                         .end = point,
@@ -246,7 +248,7 @@ pub const Contour = struct {
                                 } else return errors.BadTag;
                             },
                             else => { // tree_layer >= 3
-                                if (last == freetype.c.FT_CURVE_TAG_CUBIC) {
+                                if (last == c.FT_CURVE_TAG_CUBIC) {
                                     if (tree_layer == 3) {
                                         try segments.append(alloc, Segment{ .cubic = CubicBezier{
                                             .start = points.items[i - 3],
@@ -257,7 +259,7 @@ pub const Contour = struct {
                                     } else {
                                         return errors.BadTag;
                                     }
-                                } else if (last != freetype.c.FT_CURVE_TAG_CONIC) {
+                                } else if (last != c.FT_CURVE_TAG_CONIC) {
                                     return errors.BadTag;
                                 } else {
                                     var offs: usize = tree_layer - 2;
@@ -285,28 +287,28 @@ pub const Contour = struct {
                                 tree_layer = 0;
                             },
                         }
-                        last = freetype.c.FT_CURVE_TAG_ON;
+                        last = c.FT_CURVE_TAG_ON;
                     },
-                    freetype.c.FT_CURVE_TAG_CONIC => {
+                    c.FT_CURVE_TAG_CONIC => {
                         // std.debug.print("{} CO\n", .{tree_layer});
                         switch (tree_layer) {
                             0 => return errors.BadTag,
                             1 => {},
-                            else => if (last != freetype.c.FT_CURVE_TAG_CONIC)
+                            else => if (last != c.FT_CURVE_TAG_CONIC)
                                 return errors.BadTag,
                         }
-                        last = freetype.c.FT_CURVE_TAG_CONIC;
+                        last = c.FT_CURVE_TAG_CONIC;
                     },
-                    freetype.c.FT_CURVE_TAG_CUBIC => {
+                    c.FT_CURVE_TAG_CUBIC => {
                         // std.debug.print("{} CU\n", .{tree_layer});
                         switch (tree_layer) {
                             0 => return errors.BadTag,
                             1 => {},
-                            2 => if (last != freetype.c.FT_CURVE_TAG_CUBIC)
+                            2 => if (last != c.FT_CURVE_TAG_CUBIC)
                                 return errors.BadTag,
                             else => return errors.BadTag,
                         }
-                        last = freetype.c.FT_CURVE_TAG_CUBIC;
+                        last = c.FT_CURVE_TAG_CUBIC;
                     },
                     else => {
                         return errors.BadTag;
@@ -426,27 +428,29 @@ pub fn print_PolygonWithHoles(self: *const cgal.PolygonWithHoles, printer: *GGBP
     }
 }
 
-pub fn print_Triangles(self: *const []cgal.Triangle, printer: *GGBPrinter, name: []const u8) !void {
-    var tmp = try printer.alloc.alloc([]const u8, self.len);
-
+pub fn print_Mesh(self: cgal.Mesh, printer: *GGBPrinter, name: []const u8) !void {
+    const num_tris = self.indices.len / 3;
+    var tmp = try printer.alloc.alloc([]const u8, num_tris);
     var buf_point: [3][1024]u8 = undefined;
-    for (self.*, 0..) |triangle, i| {
+
+    for (0..num_tris) |i| {
         var vn = try printer.alloc.alloc([]const u8, 3);
-        vn[0] = try std.fmt.bufPrint(&buf_point[0], "({},{})", .{ triangle.v0[0], triangle.v0[1] });
-        vn[1] = try std.fmt.bufPrint(&buf_point[1], "({},{})", .{ triangle.v1[0], triangle.v1[1] });
-        vn[2] = try std.fmt.bufPrint(&buf_point[2], "({},{})", .{ triangle.v2[0], triangle.v2[1] });
+        inline for (0..3) |k| {
+            const idx = self.indices[i * 3 + k];
+            const p = self.vertices[idx];
+            vn[k] = try std.fmt.bufPrint(&buf_point[k], "({d},{d})", .{ p.x, p.y });
+        }
 
         const points_string = try std.mem.join(printer.alloc, ",", vn);
-
         tmp[i] = try printer.allocPrintWithChildren(0, "Polygon[{{{s}}}]", .{points_string});
         printer.alloc.free(points_string);
+        printer.alloc.free(vn);
     }
 
     const triangles_list_string = try std.mem.join(printer.alloc, ",", tmp);
     for (tmp) |_| printer.free_last();
     printer.alloc.free(tmp);
 
-    //<expression label="tri" exp="{Polygon[{(1, 1), (1, 2), (2, 1)}], Polygon[{(2, 2), (2, 3), (4, 3)}]}" />
     const source =
         \\<expression label="{s}" exp="{{{s}}}" />
         \\<element type="list" label="{s}">
@@ -460,29 +464,29 @@ pub fn print_Triangles(self: *const []cgal.Triangle, printer: *GGBPrinter, name:
         \\<angleStyle val="0"/>
         \\</element>
     ;
-
     const string = try printer.allocPrintWithChildren(0, source, .{ name, triangles_list_string, name });
     printer.alloc.free(triangles_list_string);
-
     try printer.ggb_file.add(string);
 }
 
 // render text without a texture: https://poniesandlight.co.uk/reflect/debug_print_text/
-pub fn main() !void {
-    const library = try freetype.Library.init();
-    defer library.deinit();
-
-    {
-        const version = library.version();
-        std.log.info("FreeType version: {}.{}.{}\n", .{ version.major, version.minor, version.patch });
+pub fn main(init: std.process.Init) !void {
+    var library: c.FT_Library = undefined;
+    if (c.FT_Init_FreeType(&library) != 0) {
+        //
     }
+    var major: i32 = undefined;
+    var minor: i32 = undefined;
+    var patch: i32 = undefined;
+    c.FT_Library_Version(library, &major, &minor, &patch);
+    std.log.info("FreeType version: {}.{}.{}", .{ major, minor, patch });
 
-    // const face = try library.createFace("assets/fonts/SpaceMono/SpaceMono-Regular.ttf", 0);
-    const face = try library.createFace("assets/fonts/NotoSans/NotoSansEgyptianHieroglyphs-Regular.ttf", 0);
-    defer face.deinit();
+    var face: c.FT_Face = undefined;
+    if (c.FT_New_Face(library, "assets/fonts/NotoSans/NotoSansEgyptianHieroglyphs-Regular.ttf", 0, &face) != 0) {}
 
-    try face.selectCharmap(.unicode);
-    try face.setCharSize(0, 16 * 64, 300, 300);
+    if (c.FT_Select_Charmap(face, c.FT_ENCODING_UNICODE) != 0) {}
+
+    if (c.FT_Set_Char_Size(face, 0, 16 * 64, 300, 300) != 0) {}
 
     {
         // var renderChars: [126 + 1 - 33]u32 = undefined;
@@ -518,80 +522,36 @@ pub fn main() !void {
 
             var buf: [1024]u8 = undefined;
             const len = try std.unicode.utf8Encode(@intCast(codepoint), &buf);
-            std.debug.print("rendering {s} (0x{X})\n", .{ buf[0..len], codepoint });
-            const glyph_index = face.getCharIndex(codepoint).?;
+            std.log.info("rendering {s} (0x{X})", .{ buf[0..len], codepoint });
 
-            try face.loadGlyph(glyph_index, .{});
+            const glyph_index: u32 = c.FT_Get_Char_Index(face, codepoint);
+            if (c.FT_Load_Glyph(face, glyph_index, 0) != 0) {}
 
             // parse contours
-            const contours = try Contour.parseOutlineBezier(allocator, face.glyph().outline().?, &printer_contours);
+            const contours = try Contour.parseOutlineBezier(allocator, face.*.glyph.*.outline, &printer_contours);
             if (contours.len > maxlen) {
                 maxlen_codepoint = codepoint;
                 maxlen = contours.len;
             }
-            try printer_contours.ggb_file.create(ggb_contour_filename);
+            try printer_contours.ggb_file.create(init.io, ggb_contour_filename);
 
-            // create polygonal domains
-            var contoursToClassify = try allocator.alloc([]const cgal.Point, contours.len);
-            defer allocator.free(contoursToClassify);
-            for (contours, 0..) |contour, i| {
-                contoursToClassify[i] = try contour.toGGALPointList(allocator);
-            }
-            defer {
-                for (contoursToClassify) |contourToClassify| {
-                    allocator.free(contourToClassify);
-                }
+            // create polygon
+            const contour_pts = try allocator.alloc([]cgal.CPoint, contours.len);
+            for (contours, 0..) |contour, i| contour_pts[i] = try contour.toGGALPointList(allocator);
+            const polygons = try cgal.triangulate(allocator, contour_pts);
+
+            var points = try std.ArrayList(cgal.CPoint).initCapacity(allocator, contours.len);
+            for (contour_pts) |contour| {
+                try points.appendSlice(allocator, contour);
             }
 
-            const polygons = try cgal.classifyContours(allocator, contoursToClassify);
-            defer cgal.freePolygons(allocator, polygons);
-
-            std.debug.print("classifyContours returned {} polygon(s)\n", .{polygons.len});
-            for (polygons, 0..) |polygon, i| {
-                std.debug.print("  Polygon {}: {} outer points, {} holes\n", .{ i, polygon.outer.len, polygon.holes.len });
-            }
-
-            const ggb_polygons_filename = try std.fmt.bufPrint(&ggb_filename_buf, "out/0x{X}-polygons.ggb", .{codepoint});
-            var printer_polygons: GGBPrinter = try .init(arenaAllocator);
-            defer printer_polygons.deinit();
-
-            for (polygons, 0..) |polygon, i| {
-                try print_PolygonWithHoles(&polygon, &printer_polygons, try std.fmt.bufPrint(&buf, "polygon{}", .{i}));
-            }
-
-            try printer_polygons.ggb_file.create(ggb_polygons_filename);
-
-            // triangulate
             const ggb_triangulation_filename = try std.fmt.bufPrint(&ggb_filename_buf, "out/0x{X}-triangulation.ggb", .{codepoint});
             var printer_triangulation: GGBPrinter = try .init(arenaAllocator);
             defer printer_triangulation.deinit();
-            for (polygons, 0..) |*polygon, polygonIdx| {
-                var triangulation = try cgal.triangulatePolygon(allocator, polygon);
-                defer triangulation.deinit();
-
-                std.debug.print("Triangulated into {} triangles\n", .{triangulation.triangles.len});
-
-                // Debug: check if any triangle centers are in the hole
-                if (polygon.holes.len > 0) {
-                    const hole = polygon.holes[0];
-                    std.debug.print("Checking triangles against hole with {} points\n", .{hole.len});
-
-                    for (triangulation.triangles, 0..) |tri, i| {
-                        const cx = (tri.v0[0] + tri.v1[0] + tri.v2[0]) / 3.0;
-                        const cy = (tri.v0[1] + tri.v1[1] + tri.v2[1]) / 3.0;
-                        if (i < 3) {
-                            std.debug.print("  Triangle {} centroid: ({d:.1}, {d:.1})\n", .{ i, cx, cy });
-                        }
-                    }
-                }
-
-                try print_Triangles(&triangulation.triangles, &printer_triangulation, try std.fmt.bufPrint(&buf, "polygon{}-tri", .{polygonIdx}));
-                for (triangulation.triangles) |tri| {
-                    std.debug.print("Triangle: ({d:.1}, {d:.1}) ({d:.1}, {d:.1}) ({d:.1}, {d:.1})\n", .{ tri.v0[0], tri.v0[1], tri.v1[0], tri.v1[1], tri.v2[0], tri.v2[1] });
-                }
+            for (polygons, 0..) |mesh, i| {
+                try print_Mesh(mesh, &printer_triangulation, try std.fmt.bufPrint(&buf, "mesh{}-tri", .{i}));
             }
-
-            try printer_triangulation.ggb_file.create(ggb_triangulation_filename);
+            try printer_triangulation.ggb_file.create(init.io, ggb_triangulation_filename);
         }
         std.debug.print("most contours: 0x{X} ({})", .{ maxlen_codepoint, maxlen });
     }

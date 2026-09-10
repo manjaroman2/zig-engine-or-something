@@ -11,14 +11,12 @@ pub fn build(b: *std.Build) void {
     });
 
     // mach_freetype
-    const mach_freetype_dep = b.dependency("mach_freetype", .{
+    const freetype = b.dependency("freetype", .{
         .target = target,
         .optimize = optimize,
     });
-    const mach_freetype_mod = mach_freetype_dep.module("mach-freetype");
-    const mach_harfbuzz_mod = mach_freetype_dep.module("mach-harfbuzz");
-    ttf_mod.addImport("coolfreetype", mach_freetype_mod);
-    ttf_mod.addImport("coolharfbuzz", mach_harfbuzz_mod);
+    ttf_mod.linkLibrary(freetype.artifact("freetype"));
+    ttf_mod.addIncludePath(freetype.path("include"));
 
     // zlm
     const zlm_dep = b.dependency("zlm", .{
@@ -57,14 +55,8 @@ pub fn build(b: *std.Build) void {
 
     cgal_mod.addIncludePath(b.path("."));
     cgal_mod.addObjectFile(b.path("cpp_build/libpolygon_classifier.a"));
-
-    // Link C library first
-    // cgal_mod.linkLibC();
-
     cgal_mod.addObjectFile(.{ .cwd_relative = "/usr/lib/libstdc++.so.6" });
-
     cgal_mod.linkSystemLibrary("gcc_s", .{});
-
     cgal_mod.linkSystemLibrary("gmp", .{});
     cgal_mod.linkSystemLibrary("mpfr", .{});
 
@@ -74,11 +66,6 @@ pub fn build(b: *std.Build) void {
     });
 
     exe.step.dependOn(&make_build.step);
-
-    // compile shaders
-    // const compile_shaders = b.step("compile-shaders", "Compile GLSL to SPIR-V");
-    // compileShaders(b, compile_shaders);
-    // exe.step.dependOn(compile_shaders);
 
     b.installArtifact(exe);
 
@@ -166,45 +153,3 @@ fn compileShaders(b: *std.Build, compile_shaders: *std.Build.Step) void {
         compile_shaders.dependOn(&glslc_command.step);
     }
 }
-const freetype_srcs: []const []const u8 = &.{
-    "src/autofit/autofit.c",
-    "src/base/ftbase.c",
-    "src/base/ftbbox.c",
-    "src/base/ftbdf.c",
-    "src/base/ftbitmap.c",
-    "src/base/ftcid.c",
-    "src/base/ftfstype.c",
-    "src/base/ftgasp.c",
-    "src/base/ftglyph.c",
-    "src/base/ftgxval.c",
-    "src/base/ftinit.c",
-    "src/base/ftmm.c",
-    "src/base/ftotval.c",
-    "src/base/ftpatent.c",
-    "src/base/ftpfr.c",
-    "src/base/ftstroke.c",
-    "src/base/ftsynth.c",
-    "src/base/fttype1.c",
-    "src/base/ftwinfnt.c",
-    "src/bdf/bdf.c",
-    "src/bzip2/ftbzip2.c",
-    "src/cache/ftcache.c",
-    "src/cff/cff.c",
-    "src/cid/type1cid.c",
-    "src/gzip/ftgzip.c",
-    "src/lzw/ftlzw.c",
-    "src/pcf/pcf.c",
-    "src/pfr/pfr.c",
-    "src/psaux/psaux.c",
-    "src/pshinter/pshinter.c",
-    "src/psnames/psnames.c",
-    "src/raster/raster.c",
-    "src/sdf/sdf.c",
-    "src/sfnt/sfnt.c",
-    "src/smooth/smooth.c",
-    "src/svg/svg.c",
-    "src/truetype/truetype.c",
-    "src/type1/type1.c",
-    "src/type42/type42.c",
-    "src/winfonts/winfnt.c",
-};
