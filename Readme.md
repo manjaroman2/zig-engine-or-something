@@ -1,8 +1,4 @@
-# Zig ttf engine
-
-## TTF algorithm
-
-triangulates a set of contours
+# Zig TTF testing ground 
 
 ### Contours
 ![U+1303F contours](docs/showcase/0x1303F-contours.png)
@@ -40,3 +36,8 @@ pub const Segment = union(enum) {
     }
 };
 ```
+
+The TTF format uses Bezier curves to describe the glyphs. There are many ways to render a glyph, most of them 
+revolve around creating a bitmap or texture and multiple magnifications ahead of time and then switching between those. 
+This project wants to take a different approach: Extract a triangulation from the glyphs to be rendered as a regular
+2D Mesh and add the curves later with a pixel shader. 
